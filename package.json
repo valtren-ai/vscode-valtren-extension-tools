@@ -1,0 +1,41 @@
+{
+  "name": "vscode-valtren-extension-tools",
+  "displayName": "Valtren Extension Tools",
+  "description": "Lightweight VS Code commands for creating Valtren AI extensions.",
+  "version": "0.1.0",
+  "publisher": "valtren-ai",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:valtren.createExtension",
+    "onCommand:valtren.openExamples"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "valtren.createExtension",
+        "title": "Valtren: Create Extension"
+      },
+      {
+        "command": "valtren.openExamples",
+        "title": "Valtren: Open Extension Examples"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "package": "vsce package",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.6.3",
+    "@vscode/vsce": "^3.6.2"
+  }
+}
