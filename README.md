@@ -2,6 +2,10 @@
 
 Lightweight VS Code commands for creating Valtren AI extensions.
 
+This extension builds on the published scaffold CLI:
+
+- [create-valtren-extension](https://www.npmjs.com/package/create-valtren-extension)
+
 ## Commands
 
 - `Valtren: Create Extension`
