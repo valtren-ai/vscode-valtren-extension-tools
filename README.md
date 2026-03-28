@@ -1,5 +1,8 @@
 # Valtren AI Extension Tools
 
+[![CI](https://github.com/valtren-ai/vscode-valtren-extension-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/valtren-ai/vscode-valtren-extension-tools/actions/workflows/ci.yml)
+[![Publish VS Code Extension](https://github.com/valtren-ai/vscode-valtren-extension-tools/actions/workflows/publish.yml/badge.svg)](https://github.com/valtren-ai/vscode-valtren-extension-tools/actions/workflows/publish.yml)
+
 Scaffold Valtren AI extensions directly from VS Code using the official `create-valtren-extension` CLI.
 
 This extension builds on the published scaffold CLI:
