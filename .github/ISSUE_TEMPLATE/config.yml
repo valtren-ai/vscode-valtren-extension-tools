@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Visual Studio Marketplace listing
+    url: https://marketplace.visualstudio.com/items?itemName=valtren-ai.vscode-valtren-extension-tools
+    about: Review the extension listing and release details.

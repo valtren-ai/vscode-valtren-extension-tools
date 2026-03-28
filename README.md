@@ -40,3 +40,13 @@ This extension does not re-implement scaffolding logic. It calls the published V
 3. Use the generated scaffold as your starting point
 4. Cross-check the public guides in [valtren-ai/extension-examples](https://github.com/valtren-ai/extension-examples)
 5. Validate, smoke-test, and version the extension before production rollout
+
+## Support
+
+- Report issues: [GitHub Issues](https://github.com/valtren-ai/vscode-valtren-extension-tools/issues)
+- Extension Marketplace listing: [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=valtren-ai.vscode-valtren-extension-tools)
+
+## Versioning
+
+- This extension follows semantic versioning.
+- See [CHANGELOG.md](./CHANGELOG.md) for release notes and upgrade guidance.
