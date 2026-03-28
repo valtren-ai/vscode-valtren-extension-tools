@@ -1,15 +1,39 @@
 {
   "name": "vscode-valtren-extension-tools",
-  "displayName": "Valtren Extension Tools",
-  "description": "Lightweight VS Code commands for creating Valtren AI extensions.",
-  "version": "0.1.0",
+  "displayName": "Valtren AI Extension Tools",
+  "description": "Scaffold Valtren AI extensions from VS Code using the official create-valtren-extension CLI.",
+  "version": "0.2.0",
   "publisher": "valtren-ai",
+  "icon": "images/icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/valtren-ai/vscode-valtren-extension-tools"
+  },
+  "homepage": "https://github.com/valtren-ai/vscode-valtren-extension-tools#readme",
+  "bugs": {
+    "url": "https://github.com/valtren-ai/vscode-valtren-extension-tools/issues"
+  },
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "valtren",
+    "extension",
+    "extensions",
+    "workflow",
+    "sidecar",
+    "scaffold",
+    "agents",
+    "ai"
+  ],
+  "galleryBanner": {
+    "color": "#0B1220",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onCommand:valtren.createExtension",
     "onCommand:valtren.openExamples"
@@ -19,18 +43,21 @@
     "commands": [
       {
         "command": "valtren.createExtension",
-        "title": "Valtren: Create Extension"
+        "title": "Create Extension",
+        "category": "Valtren AI"
       },
       {
         "command": "valtren.openExamples",
-        "title": "Valtren: Open Extension Examples"
+        "title": "Open Extension Examples",
+        "category": "Valtren AI"
       }
     ]
   },
   "scripts": {
     "build": "tsc -p ./",
     "package": "vsce package",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "publish:vsce": "vsce publish"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

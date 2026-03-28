@@ -1,18 +1,20 @@
-# Valtren Extension Tools
+# Valtren AI Extension Tools
 
-Lightweight VS Code commands for creating Valtren AI extensions.
+Scaffold Valtren AI extensions directly from VS Code using the official `create-valtren-extension` CLI.
 
 This extension builds on the published scaffold CLI:
 
 - [create-valtren-extension](https://www.npmjs.com/package/create-valtren-extension)
 
+It is designed for teams who want a lightweight editor workflow without duplicating scaffold logic across the SDK, public examples, and Marketplace tooling.
+
 ## Commands
 
-- `Valtren: Create Extension`
+- `Valtren AI: Create Extension`
   - prompts for extension name and runtime
   - opens a folder picker
   - runs `npx create-valtren-extension ...` in a VS Code terminal
-- `Valtren: Open Extension Examples`
+- `Valtren AI: Open Extension Examples`
   - opens the public examples repo in the browser
 
 ## Why this extension is lightweight
@@ -25,3 +27,13 @@ This extension does not re-implement scaffolding logic. It calls the published V
 - `org-zip-node`
 - `org-zip-python`
 - `sidecar-python`
+- `sidecar-java`
+- `sidecar-dotnet`
+
+## Recommended flow
+
+1. Run `Valtren AI: Create Extension`
+2. Pick the runtime that matches your team and deployment model
+3. Use the generated scaffold as your starting point
+4. Cross-check the public guides in [valtren-ai/extension-examples](https://github.com/valtren-ai/extension-examples)
+5. Validate, smoke-test, and version the extension before production rollout
