@@ -158,7 +158,8 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 let connectionViewProvider: ConnectionTreeProvider | undefined;
 let semanticsViewProvider: SemanticsTreeProvider | undefined;
 let extensionsViewProvider: ExtensionsTreeProvider | undefined;
-const semanticDocumentSelector: vscode.DocumentSelector = [
+let semanticDiagnostics: vscode.DiagnosticCollection | undefined;
+const semanticDocumentFilters: vscode.DocumentFilter[] = [
   { language: "javascript" },
   { language: "typescript" },
   { language: "python" },
@@ -169,6 +170,7 @@ const semanticDocumentSelector: vscode.DocumentSelector = [
   { language: "plaintext" },
   { language: "markdown" },
 ];
+const semanticDocumentSelector: vscode.DocumentSelector = semanticDocumentFilters;
 
 type ConnectionTreeNode =
   | { kind: "connect" }
@@ -444,6 +446,8 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBarItem.command = "valtren.showConnection";
   context.subscriptions.push(statusBarItem);
+  semanticDiagnostics = vscode.languages.createDiagnosticCollection("valtrenSemanticReferences");
+  context.subscriptions.push(semanticDiagnostics);
 
   connectionViewProvider = new ConnectionTreeProvider(context);
   semanticsViewProvider = new SemanticsTreeProvider(context);
@@ -469,6 +473,15 @@ export function activate(context: vscode.ExtensionContext) {
       semanticDocumentSelector,
       createSemanticHoverProvider(context),
     ),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((document) => updateSemanticDiagnosticsForDocument(context, document)),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((event) => updateSemanticDiagnosticsForDocument(context, event.document)),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidCloseTextDocument((document) => semanticDiagnostics?.delete(document.uri)),
   );
 
   const register = (command: string, handler: (...args: unknown[]) => unknown) =>
@@ -558,6 +571,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   void refreshStatusBar(context);
   refreshWorkbenchViews();
+  void refreshAllSemanticDiagnostics(context);
 }
 
 export function deactivate() {
@@ -566,6 +580,9 @@ export function deactivate() {
   }
   if (outputChannel) {
     outputChannel.dispose();
+  }
+  if (semanticDiagnostics) {
+    semanticDiagnostics.dispose();
   }
 }
 
@@ -932,6 +949,7 @@ async function refreshSemanticCache(context: vscode.ExtensionContext, noisy: boo
   await context.globalState.update(semanticCatalogStateKey, catalog);
   await refreshStatusBar(context);
   refreshWorkbenchViews();
+  await refreshAllSemanticDiagnostics(context);
 
   if (noisy) {
     vscode.window.showInformationMessage(
@@ -1487,6 +1505,20 @@ async function openSemanticTableExplorer(
     },
   );
   panel.webview.html = renderSemanticTableExplorer(table);
+  panel.webview.onDidReceiveMessage(
+    async (message: unknown) => {
+      if (!message || typeof message !== "object") {
+        return;
+      }
+      const type = "type" in message ? (message as { type?: unknown }).type : undefined;
+      const value = "value" in message ? (message as { value?: unknown }).value : undefined;
+      if (type === "insert" && typeof value === "string") {
+        await insertTextIntoActiveEditor(value);
+      }
+    },
+    undefined,
+    [],
+  );
 }
 
 async function validateCurrentExtension(): Promise<ValidationResult | undefined> {
@@ -1966,6 +1998,14 @@ function renderSemanticTableExplorer(table: SemanticTable): string {
     `${table.tableName}.${firstField}`,
     `${table.tableName}.\${field_name}`,
   ];
+  const snippetButtons = snippets
+    .map(
+      (snippet) =>
+        `<button class="snippet-button" data-insert="${escapeHtmlAttribute(snippet)}">Insert <code>${escapeHtml(
+          snippet,
+        )}</code></button>`,
+    )
+    .join("");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -2007,6 +2047,23 @@ function renderSemanticTableExplorer(table: SemanticTable): string {
         border-radius: 6px;
         overflow: auto;
       }
+      .snippet-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+      .snippet-button {
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        border-radius: 6px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      .snippet-button:hover {
+        background: var(--vscode-button-hoverBackground);
+      }
     </style>
   </head>
   <body>
@@ -2017,6 +2074,7 @@ function renderSemanticTableExplorer(table: SemanticTable): string {
     <div class="card">
       <h2>Quick snippets</h2>
       <pre><code>${escapeHtml(snippets.join("\n"))}</code></pre>
+      <div class="snippet-actions">${snippetButtons}</div>
     </div>
 
     <div class="card">
@@ -2034,6 +2092,17 @@ function renderSemanticTableExplorer(table: SemanticTable): string {
         </tbody>
       </table>
     </div>
+    <script>
+      const vscode = acquireVsCodeApi();
+      for (const button of document.querySelectorAll(".snippet-button")) {
+        button.addEventListener("click", () => {
+          const value = button.getAttribute("data-insert");
+          if (value) {
+            vscode.postMessage({ type: "insert", value });
+          }
+        });
+      }
+    </script>
   </body>
 </html>`;
 }
@@ -2045,6 +2114,105 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return escapeHtml(value).replace(/\n/g, " ");
+}
+
+async function refreshAllSemanticDiagnostics(context: vscode.ExtensionContext): Promise<void> {
+  await Promise.all(
+    vscode.workspace.textDocuments.map((document) => updateSemanticDiagnosticsForDocument(context, document)),
+  );
+}
+
+async function updateSemanticDiagnosticsForDocument(
+  context: vscode.ExtensionContext,
+  document: vscode.TextDocument,
+): Promise<void> {
+  if (!semanticDiagnostics) {
+    return;
+  }
+  if (!semanticDocumentFilters.some((selector) => matchesDocumentSelector(selector, document))) {
+    semanticDiagnostics.delete(document.uri);
+    return;
+  }
+
+  const catalog = context.globalState.get<SemanticCatalog>(semanticCatalogStateKey);
+  if (!catalog?.tables?.length) {
+    semanticDiagnostics.delete(document.uri);
+    return;
+  }
+
+  const diagnostics: vscode.Diagnostic[] = [];
+  const quotedReferencePattern = /(["'`])([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)?)\1/g;
+  const text = document.getText();
+
+  for (const match of text.matchAll(quotedReferencePattern)) {
+    const fullMatch = match[0];
+    const reference = match[2];
+    if (!reference) {
+      continue;
+    }
+    const startOffset = (match.index ?? 0) + 1;
+    const endOffset = startOffset + reference.length;
+    const range = new vscode.Range(document.positionAt(startOffset), document.positionAt(endOffset));
+
+    if (reference.includes(".")) {
+      const [tableName, fieldName] = reference.split(".", 2);
+      const table = catalog.tables.find((item) => item.tableName === tableName);
+      if (!table) {
+        diagnostics.push(
+          new vscode.Diagnostic(
+            range,
+            `Unknown semantic table "${tableName}". Refresh the semantic cache or pick a known table from the Valtren AI workbench.`,
+            vscode.DiagnosticSeverity.Warning,
+          ),
+        );
+        continue;
+      }
+      const field = table.fields.find((item) => item.fieldName === fieldName);
+      if (!field) {
+        diagnostics.push(
+          new vscode.Diagnostic(
+            range,
+            `Unknown semantic field "${reference}". "${tableName}" does not currently expose "${fieldName}".`,
+            vscode.DiagnosticSeverity.Warning,
+          ),
+        );
+      }
+      continue;
+    }
+
+    const table = catalog.tables.find((item) => item.tableName === reference);
+    if (!table) {
+      diagnostics.push(
+        new vscode.Diagnostic(
+          range,
+          `Unknown semantic table "${reference}". Refresh the semantic cache or use the Valtren AI schema explorer to insert a valid table reference.`,
+          vscode.DiagnosticSeverity.Warning,
+        ),
+      );
+    }
+  }
+
+  semanticDiagnostics.set(document.uri, diagnostics);
+}
+
+function matchesDocumentSelector(
+  selector: vscode.DocumentFilter | string,
+  document: vscode.TextDocument,
+): boolean {
+  if (typeof selector === "string") {
+    return selector === document.languageId;
+  }
+  if (selector.language && selector.language !== document.languageId) {
+    return false;
+  }
+  if (selector.scheme && selector.scheme !== document.uri.scheme) {
+    return false;
+  }
+  return true;
 }
 
 async function insertTextIntoActiveEditor(value: string) {

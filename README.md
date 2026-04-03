@@ -22,6 +22,7 @@ This release adds a dedicated `Valtren AI` activity-bar workbench with:
   - click a table or field to insert it into the active editor
   - get autocomplete and hover docs while writing table and `table.field` references
   - open a lightweight schema explorer for a selected table
+  - insert ready-made snippets directly from the schema explorer
 - `Uploaded Extensions`
   - browse uploaded org extensions
   - open source previews
@@ -89,6 +90,13 @@ You also get snippet-style suggestions such as:
 - `table_name.field_name`
 - quick field-reference snippets built from the first known field in a table
 
+The extension also adds inline diagnostics for unknown semantic references inside quoted strings, for example:
+
+- `"sales_order_header"`
+- `"sales_order_header.net_value"`
+
+That helps catch typos while keeping noise low in regular code.
+
 ## Secure connection model
 
 - API tokens are stored in VS Code `SecretStorage`, not in your workspace files.
@@ -139,6 +147,7 @@ This release adds the first real `Valtren Extension Workbench` slice:
 - editor insertion commands
 - semantic autocomplete and hover docs in the editor
 - semantic snippets and schema explorer panels
+- inline diagnostics for unknown semantic references in quoted strings
 
 Next steps will add:
 
