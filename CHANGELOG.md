@@ -4,6 +4,14 @@ All notable changes to `vscode-valtren-extension-tools` will be documented in th
 
 The format is based on Keep a Changelog and this extension follows Semantic Versioning.
 
+## [0.4.0] - 2026-04-03
+
+### Added
+
+- Local extension validation for the current workspace.
+- Local ZIP packaging for org-ready Valtren extensions.
+- Direct upload of the current extension ZIP to a connected Valtren organization.
+
 ## [0.3.0] - 2026-04-03
 
 ### Added
