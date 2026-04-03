@@ -30,6 +30,10 @@ It is designed for teams who want a lightweight editor workflow without duplicat
   - creates an org-ready ZIP under `.valtren/dist/` in the current workspace
 - `Valtren AI: Upload Extension ZIP to Valtren`
   - packages the current workspace and uploads it directly to the connected org
+- `Valtren AI: List Uploaded Extensions`
+  - shows uploaded org extension packages from the connected Valtren org
+- `Valtren AI: Test Uploaded Extension`
+  - runs the platform smoke test for an enabled uploaded extension
 - `Valtren AI: Browse Semantic Tables`
   - loads live semantic tables from your connected Valtren org
 - `Valtren AI: Browse Semantic Fields`
@@ -83,13 +87,14 @@ This release adds the first real `Valtren Extension Workbench` slice:
 - local extension validation
 - local extension ZIP packaging
 - direct ZIP upload to a connected Valtren org
+- uploaded extension listing
+- uploaded extension smoke tests
 - live semantic table browsing
 - live semantic field browsing
 - editor insertion commands
 
 Next steps will add:
 
-- trigger org smoke tests from VS Code
 - browse uploaded extension source
 
 ## Support

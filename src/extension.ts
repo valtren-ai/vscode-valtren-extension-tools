@@ -86,6 +86,44 @@ type ValidationResult = {
   suggestedName: string;
 };
 
+type OrgExtensionPackage = {
+  id: string;
+  extension_key?: string;
+  display_name?: string;
+  version?: string;
+  status?: string;
+  source_type?: string;
+  entry_file?: string;
+  manifest?: {
+    runtime?: string;
+    smoke_test_route?: string | null;
+  };
+  installation?: {
+    enabled?: boolean;
+    runtime_status?: string;
+    health_status?: string;
+    runtime_metadata?: {
+      smoke_test_route?: string | null;
+    };
+  } | null;
+};
+
+type OrgExtensionsListResponse = {
+  org_id?: string;
+  package_count?: number;
+  enabled_count?: number;
+  pending_review_count?: number;
+  failed_count?: number;
+  packages?: OrgExtensionPackage[];
+};
+
+type OrgExtensionTestResponse = {
+  ok?: boolean;
+  status_code?: number;
+  route?: string | null;
+  body?: unknown;
+};
+
 const secretKeys = {
   apiToken: "valtren.apiToken",
   baseUrl: "valtren.baseUrl",
@@ -148,6 +186,14 @@ export function activate(context: vscode.ExtensionContext) {
 
   register("valtren.uploadExtensionZip", async () => {
     await uploadExtensionZip(context);
+  });
+
+  register("valtren.listUploadedExtensions", async () => {
+    await listUploadedExtensions(context);
+  });
+
+  register("valtren.testUploadedExtension", async () => {
+    await testUploadedExtension(context);
   });
 
   register("valtren.browseSemanticTables", async () => {
@@ -341,6 +387,8 @@ async function showConnection(context: vscode.ExtensionContext) {
     "Validate current extension",
     "Package current extension",
     "Upload extension ZIP",
+    "List uploaded extensions",
+    "Test uploaded extension",
     "Browse semantic tables",
     "Browse semantic fields",
     "Refresh semantic cache",
@@ -364,6 +412,14 @@ async function showConnection(context: vscode.ExtensionContext) {
   }
   if (picked === "Upload extension ZIP") {
     await uploadExtensionZip(context);
+    return;
+  }
+  if (picked === "List uploaded extensions") {
+    await listUploadedExtensions(context);
+    return;
+  }
+  if (picked === "Test uploaded extension") {
+    await testUploadedExtension(context);
     return;
   }
   if (picked === "Browse semantic tables") {
@@ -638,6 +694,166 @@ async function uploadExtensionZip(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Uploaded ${displayName.trim()} to ${connection.orgLabel ?? "Valtren AI"} with status ${packageStatus}.`,
       );
+    },
+  );
+}
+
+async function listUploadedExtensions(context: vscode.ExtensionContext) {
+  const connection = await getConnection(context);
+  if (!connection) {
+    const action = await vscode.window.showInformationMessage(
+      "Connect to a Valtren organization before listing uploaded extensions.",
+      "Connect now",
+    );
+    if (action === "Connect now") {
+      await connectOrganization(context);
+    }
+    return;
+  }
+
+  const payload = await requestJson<OrgExtensionsListResponse>(
+    connection.baseUrl,
+    "/api/admin/org/extensions/packages",
+    connection.apiToken,
+    { method: "GET" },
+  );
+  const packages = Array.isArray(payload.packages) ? payload.packages : [];
+
+  if (!packages.length) {
+    vscode.window.showInformationMessage(
+      `No uploaded org extensions were found in ${connection.orgLabel ?? "Valtren AI"}.`,
+    );
+    return;
+  }
+
+  outputChannel?.show(true);
+  outputChannel?.appendLine(
+    [
+      `Uploaded extensions for ${connection.orgLabel ?? "Valtren AI"}`,
+      `Total: ${payload.package_count ?? packages.length}`,
+      `Enabled: ${payload.enabled_count ?? packages.filter((item) => item.installation?.enabled).length}`,
+      "",
+      ...packages.map((pkg) => {
+        const smokeRoute =
+          pkg.installation?.runtime_metadata?.smoke_test_route ||
+          pkg.manifest?.smoke_test_route ||
+          null;
+        return `- ${pkg.display_name || pkg.extension_key || pkg.id} (${pkg.version || "1.0.0"}) • ${pkg.status || "unknown"} • ${
+          pkg.installation?.enabled ? "enabled" : "not enabled"
+        }${smokeRoute ? ` • smoke ${smokeRoute}` : ""}`;
+      }),
+      "",
+    ].join("\n"),
+  );
+
+  await vscode.window.showQuickPick(
+    packages.map((pkg) => ({
+      label: pkg.display_name || pkg.extension_key || pkg.id,
+      description: `${pkg.status || "unknown"}${pkg.installation?.enabled ? " • enabled" : ""}`,
+      detail:
+        pkg.installation?.runtime_metadata?.smoke_test_route ||
+        pkg.manifest?.smoke_test_route ||
+        pkg.entry_file ||
+        pkg.source_type ||
+        undefined,
+    })),
+    {
+      placeHolder: "Uploaded extension summary was written to the Valtren AI output channel",
+    },
+  );
+}
+
+async function testUploadedExtension(context: vscode.ExtensionContext) {
+  const connection = await getConnection(context);
+  if (!connection) {
+    const action = await vscode.window.showInformationMessage(
+      "Connect to a Valtren organization before testing an uploaded extension.",
+      "Connect now",
+    );
+    if (action === "Connect now") {
+      await connectOrganization(context);
+    }
+    return;
+  }
+
+  const payload = await requestJson<OrgExtensionsListResponse>(
+    connection.baseUrl,
+    "/api/admin/org/extensions/packages",
+    connection.apiToken,
+    { method: "GET" },
+  );
+  const packages = (Array.isArray(payload.packages) ? payload.packages : []).filter(
+    (pkg) => pkg.installation?.enabled,
+  );
+
+  if (!packages.length) {
+    vscode.window.showInformationMessage(
+      `There are no enabled uploaded extensions to test in ${connection.orgLabel ?? "Valtren AI"}.`,
+    );
+    return;
+  }
+
+  const selected = await vscode.window.showQuickPick(
+    packages.map((pkg) => ({
+      label: pkg.display_name || pkg.extension_key || pkg.id,
+      description: `${pkg.status || "unknown"} • ${pkg.installation?.health_status || "unknown health"}`,
+      detail:
+        pkg.installation?.runtime_metadata?.smoke_test_route ||
+        pkg.manifest?.smoke_test_route ||
+        "No stored smoke route metadata",
+      pkg,
+    })),
+    {
+      placeHolder: "Select an enabled uploaded extension to smoke-test",
+      matchOnDescription: true,
+      matchOnDetail: true,
+    },
+  );
+
+  if (!selected) {
+    return;
+  }
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Testing ${selected.label}`,
+      cancellable: false,
+    },
+    async () => {
+      const result = await requestJson<OrgExtensionTestResponse>(
+        connection.baseUrl,
+        `/api/admin/org/extensions/${selected.pkg.id}/test`,
+        connection.apiToken,
+        { method: "POST", body: {} },
+      );
+
+      outputChannel?.show(true);
+      outputChannel?.appendLine(
+        [
+          `Extension smoke test: ${selected.label}`,
+          `Status: ${result.status_code ?? (result.ok ? 200 : 400)}`,
+          result.route ? `Route: ${result.route}` : undefined,
+          "Response:",
+          formatJson(result.body ?? result),
+          "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+
+      if (result.ok) {
+        vscode.window.showInformationMessage(
+          `${selected.label} passed smoke test${result.route ? ` via ${result.route}` : ""}.`,
+        );
+        return;
+      }
+
+      const message =
+        result && typeof result.body === "object" && result.body && "error" in (result.body as Record<string, unknown>)
+          ? String((result.body as Record<string, unknown>).error)
+          : "Smoke test failed";
+      vscode.window.showWarningMessage(`${selected.label}: ${message}`);
     },
   );
 }
@@ -978,13 +1194,32 @@ async function postJson<T>(
   apiToken: string,
   body: unknown,
 ): Promise<T> {
-  const response = await fetch(`${baseUrl}${route}`, {
+  return requestJson<T>(baseUrl, route, apiToken, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiToken}`,
-    },
-    body: JSON.stringify(body),
+    body,
+  });
+}
+
+async function requestJson<T>(
+  baseUrl: string,
+  route: string,
+  apiToken: string,
+  options: {
+    method?: "GET" | "POST";
+    body?: unknown;
+  } = {},
+): Promise<T> {
+  const method = options.method ?? "POST";
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${apiToken}`,
+  };
+  if (method !== "GET") {
+    headers["content-type"] = "application/json";
+  }
+  const response = await fetch(`${baseUrl}${route}`, {
+    method,
+    headers,
+    body: method === "GET" ? undefined : JSON.stringify(options.body ?? {}),
   });
 
   const rawText = await response.text();
@@ -1021,6 +1256,14 @@ function parseJsonSafely(raw: string): unknown {
     return JSON.parse(raw);
   } catch {
     return { raw };
+  }
+}
+
+function formatJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value ?? "");
   }
 }
 
