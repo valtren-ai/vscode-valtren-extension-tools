@@ -34,6 +34,14 @@ It is designed for teams who want a lightweight editor workflow without duplicat
   - shows uploaded org extension packages from the connected Valtren org
 - `Valtren AI: Test Uploaded Extension`
   - runs the platform smoke test for an enabled uploaded extension
+- `Valtren AI: Browse Uploaded Extension Source`
+  - previews uploaded extension files from the connected Valtren org
+- `Valtren AI: Approve Uploaded Extension`
+  - approves a pending uploaded extension for activation
+- `Valtren AI: Enable Uploaded Extension`
+  - enables an approved uploaded extension in the connected org
+- `Valtren AI: Disable Uploaded Extension`
+  - disables an enabled uploaded extension in the connected org
 - `Valtren AI: Browse Semantic Tables`
   - loads live semantic tables from your connected Valtren org
 - `Valtren AI: Browse Semantic Fields`
@@ -89,13 +97,15 @@ This release adds the first real `Valtren Extension Workbench` slice:
 - direct ZIP upload to a connected Valtren org
 - uploaded extension listing
 - uploaded extension smoke tests
+- uploaded extension source browsing
+- approve / enable / disable actions for uploaded extensions
 - live semantic table browsing
 - live semantic field browsing
 - editor insertion commands
 
 Next steps will add:
 
-- browse uploaded extension source
+- richer capability previews inside VS Code
 
 ## Support
 
