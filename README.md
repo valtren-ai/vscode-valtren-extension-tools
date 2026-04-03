@@ -11,6 +11,22 @@ This extension builds on the published scaffold CLI:
 
 It is designed for teams who want a lightweight editor workflow without duplicating scaffold logic across the SDK, public examples, and Marketplace tooling.
 
+## Sidebar workbench
+
+This release adds a dedicated `Valtren AI` activity-bar workbench with:
+
+- `Connection`
+  - connect, disconnect, refresh semantics, and inspect the current org/version
+- `Semantics`
+  - browse semantic tables and fields from the connected Valtren org
+  - click a table or field to insert it into the active editor
+- `Uploaded Extensions`
+  - browse uploaded org extensions
+  - open source previews
+  - approve, enable, disable, and smoke-test uploaded packages
+
+You can still use the command palette, but the sidebar is now the fastest day-to-day workflow.
+
 ## Commands
 
 - `Valtren AI: Create Extension`
@@ -92,6 +108,7 @@ This release adds the first real `Valtren Extension Workbench` slice:
 
 - secure org connection
 - status-bar connection summary
+- dedicated activity-bar workbench views for connection, semantics, and uploaded extensions
 - local extension validation
 - local extension ZIP packaging
 - direct ZIP upload to a connected Valtren org

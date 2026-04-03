@@ -155,6 +155,262 @@ const outputChannelName = "Valtren AI";
 
 let outputChannel: vscode.OutputChannel | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
+let connectionViewProvider: ConnectionTreeProvider | undefined;
+let semanticsViewProvider: SemanticsTreeProvider | undefined;
+let extensionsViewProvider: ExtensionsTreeProvider | undefined;
+
+type ConnectionTreeNode =
+  | { kind: "connect" }
+  | { kind: "disconnect" }
+  | { kind: "refreshSemantics" }
+  | { kind: "showConnection" }
+  | { kind: "connected"; label: string; description?: string }
+  | { kind: "version"; label: string };
+
+type SemanticsTreeNode =
+  | { kind: "empty"; label: string }
+  | { kind: "table"; table: SemanticTable }
+  | { kind: "field"; field: SemanticField };
+
+type ExtensionTreeNode =
+  | { kind: "empty"; label: string }
+  | { kind: "package"; pkg: OrgExtensionPackage }
+  | { kind: "packageAction"; action: "test" | "source" | "approve" | "enable" | "disable"; pkg: OrgExtensionPackage };
+
+class ConnectionTreeProvider implements vscode.TreeDataProvider<ConnectionTreeNode> {
+  private readonly emitter = new vscode.EventEmitter<ConnectionTreeNode | undefined | null | void>();
+  readonly onDidChangeTreeData = this.emitter.event;
+
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  refresh() {
+    this.emitter.fire();
+  }
+
+  getTreeItem(element: ConnectionTreeNode): vscode.TreeItem {
+    if (element.kind === "connected") {
+      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
+      item.description = element.description;
+      item.iconPath = new vscode.ThemeIcon("plug");
+      item.command = { command: "valtren.showConnection", title: "Show Connected Organization" };
+      return item;
+    }
+    if (element.kind === "version") {
+      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
+      item.iconPath = new vscode.ThemeIcon("versions");
+      return item;
+    }
+    const labelMap: Record<ConnectionTreeNode["kind"], string> = {
+      connect: "Connect to Organization",
+      disconnect: "Disconnect from Organization",
+      refreshSemantics: "Refresh Semantic Cache",
+      showConnection: "Show Connected Organization",
+      connected: "",
+      version: "",
+    };
+    const commandMap: Partial<Record<ConnectionTreeNode["kind"], string>> = {
+      connect: "valtren.connectOrganization",
+      disconnect: "valtren.disconnectOrganization",
+      refreshSemantics: "valtren.refreshSemanticCache",
+      showConnection: "valtren.showConnection",
+    };
+    const iconMap: Partial<Record<ConnectionTreeNode["kind"], string>> = {
+      connect: "plug",
+      disconnect: "debug-disconnect",
+      refreshSemantics: "refresh",
+      showConnection: "info",
+    };
+    const item = new vscode.TreeItem(labelMap[element.kind], vscode.TreeItemCollapsibleState.None);
+    item.iconPath = new vscode.ThemeIcon(iconMap[element.kind] || "circle");
+    const command = commandMap[element.kind];
+    if (command) {
+      item.command = { command, title: labelMap[element.kind] };
+    }
+    return item;
+  }
+
+  async getChildren(element?: ConnectionTreeNode): Promise<ConnectionTreeNode[]> {
+    if (element) {
+      return [];
+    }
+    const connection = await getConnection(this.context);
+    if (!connection) {
+      return [{ kind: "connect" }];
+    }
+    return [
+      {
+        kind: "connected",
+        label: connection.orgLabel || "Connected organization",
+        description: connection.baseUrl,
+      },
+      ...(connection.platformVersion
+        ? ([{ kind: "version", label: `Valtren AI ${connection.platformVersion}` }] as ConnectionTreeNode[])
+        : []),
+      { kind: "showConnection" } as ConnectionTreeNode,
+      { kind: "refreshSemantics" } as ConnectionTreeNode,
+      { kind: "disconnect" } as ConnectionTreeNode,
+    ];
+  }
+}
+
+class SemanticsTreeProvider implements vscode.TreeDataProvider<SemanticsTreeNode> {
+  private readonly emitter = new vscode.EventEmitter<SemanticsTreeNode | undefined | null | void>();
+  readonly onDidChangeTreeData = this.emitter.event;
+
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  refresh() {
+    this.emitter.fire();
+  }
+
+  getTreeItem(element: SemanticsTreeNode): vscode.TreeItem {
+    if (element.kind === "empty") {
+      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
+      item.iconPath = new vscode.ThemeIcon("info");
+      return item;
+    }
+    if (element.kind === "table") {
+      const item = new vscode.TreeItem(
+        element.table.tableName,
+        vscode.TreeItemCollapsibleState.Collapsed,
+      );
+      item.description = element.table.displayName || undefined;
+      item.tooltip = element.table.description || element.table.tableName;
+      item.iconPath = new vscode.ThemeIcon("database");
+      item.command = {
+        command: "valtren.insertSemanticTable",
+        title: "Insert Semantic Table",
+        arguments: [element.table.tableName],
+      };
+      return item;
+    }
+    const item = new vscode.TreeItem(
+      `${element.field.fieldName}${element.field.fieldType ? ` (${element.field.fieldType})` : ""}`,
+      vscode.TreeItemCollapsibleState.None,
+    );
+    item.description = element.field.description || undefined;
+    item.tooltip = `${element.field.tableName}.${element.field.fieldName}${
+      element.field.description ? `\n${element.field.description}` : ""
+    }`;
+    item.iconPath = new vscode.ThemeIcon("symbol-field");
+    item.command = {
+      command: "valtren.insertSemanticField",
+      title: "Insert Semantic Field",
+      arguments: [`${element.field.tableName}.${element.field.fieldName}`],
+    };
+    return item;
+  }
+
+  async getChildren(element?: SemanticsTreeNode): Promise<SemanticsTreeNode[]> {
+    const catalog = this.context.globalState.get<SemanticCatalog>(semanticCatalogStateKey);
+    if (!catalog) {
+      return !element ? [{ kind: "empty", label: "Connect and refresh semantics to browse tables" }] : [];
+    }
+    if (!element) {
+      return catalog.tables.map((table) => ({ kind: "table", table }));
+    }
+    if (element.kind === "table") {
+      return element.table.fields.map((field) => ({ kind: "field", field }));
+    }
+    return [];
+  }
+}
+
+class ExtensionsTreeProvider implements vscode.TreeDataProvider<ExtensionTreeNode> {
+  private readonly emitter = new vscode.EventEmitter<ExtensionTreeNode | undefined | null | void>();
+  readonly onDidChangeTreeData = this.emitter.event;
+
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  refresh() {
+    this.emitter.fire();
+  }
+
+  getTreeItem(element: ExtensionTreeNode): vscode.TreeItem {
+    if (element.kind === "empty") {
+      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
+      item.iconPath = new vscode.ThemeIcon("info");
+      return item;
+    }
+    if (element.kind === "package") {
+      const item = new vscode.TreeItem(
+        element.pkg.display_name || element.pkg.extension_key || element.pkg.id,
+        vscode.TreeItemCollapsibleState.Collapsed,
+      );
+      item.description = `${element.pkg.status || "unknown"}${element.pkg.installation?.enabled ? " • enabled" : ""}`;
+      item.tooltip =
+        element.pkg.installation?.runtime_metadata?.smoke_test_route ||
+        element.pkg.manifest?.smoke_test_route ||
+        element.pkg.entry_file ||
+        element.pkg.source_type ||
+        "";
+      item.iconPath = new vscode.ThemeIcon(element.pkg.installation?.enabled ? "package" : "archive");
+      return item;
+    }
+    const titleMap = {
+      test: "Test extension",
+      source: "Browse source",
+      approve: "Approve",
+      enable: "Enable",
+      disable: "Disable",
+    };
+    const commandMap = {
+      test: "valtren.testUploadedExtension",
+      source: "valtren.browseUploadedExtensionSource",
+      approve: "valtren.approveUploadedExtension",
+      enable: "valtren.enableUploadedExtension",
+      disable: "valtren.disableUploadedExtension",
+    };
+    const iconMap = {
+      test: "beaker",
+      source: "file-code",
+      approve: "pass",
+      enable: "play",
+      disable: "circle-slash",
+    };
+    const item = new vscode.TreeItem(titleMap[element.action], vscode.TreeItemCollapsibleState.None);
+    item.iconPath = new vscode.ThemeIcon(iconMap[element.action]);
+    item.command = {
+      command: commandMap[element.action],
+      title: titleMap[element.action],
+      arguments: [element.pkg],
+    };
+    return item;
+  }
+
+  async getChildren(element?: ExtensionTreeNode): Promise<ExtensionTreeNode[]> {
+    const connection = await getConnection(this.context);
+    if (!connection) {
+      return !element ? [{ kind: "empty", label: "Connect to Valtren AI to manage uploaded extensions" }] : [];
+    }
+    if (!element) {
+      const payload = await fetchOrgExtensions(connection).catch(() => undefined);
+      const packages = Array.isArray(payload?.packages) ? payload?.packages : [];
+      if (!packages.length) {
+        return [{ kind: "empty", label: "No uploaded extensions found in this organization" }];
+      }
+      return packages.map((pkg) => ({ kind: "package", pkg }));
+    }
+    if (element.kind === "package") {
+      const actions: ExtensionTreeNode[] = [
+        { kind: "packageAction", action: "source", pkg: element.pkg },
+      ];
+      if (element.pkg.installation?.enabled) {
+        actions.push({ kind: "packageAction", action: "test", pkg: element.pkg });
+        actions.push({ kind: "packageAction", action: "disable", pkg: element.pkg });
+      } else {
+        if (element.pkg.status === "pending_review") {
+          actions.push({ kind: "packageAction", action: "approve", pkg: element.pkg });
+        }
+        if (element.pkg.status === "approved" || element.pkg.status === "disabled" || element.pkg.status === "enabled") {
+          actions.push({ kind: "packageAction", action: "enable", pkg: element.pkg });
+        }
+      }
+      return actions;
+    }
+    return [];
+  }
+}
 
 export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel(outputChannelName);
@@ -163,6 +419,19 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBarItem.command = "valtren.showConnection";
   context.subscriptions.push(statusBarItem);
+
+  connectionViewProvider = new ConnectionTreeProvider(context);
+  semanticsViewProvider = new SemanticsTreeProvider(context);
+  extensionsViewProvider = new ExtensionsTreeProvider(context);
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("valtrenConnection", connectionViewProvider),
+  );
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("valtrenSemantics", semanticsViewProvider),
+  );
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("valtrenUploadedExtensions", extensionsViewProvider),
+  );
 
   const register = (command: string, handler: (...args: unknown[]) => unknown) =>
     context.subscriptions.push(vscode.commands.registerCommand(command, handler));
@@ -213,20 +482,20 @@ export function activate(context: vscode.ExtensionContext) {
     await testUploadedExtension(context);
   });
 
-  register("valtren.browseUploadedExtensionSource", async () => {
-    await browseUploadedExtensionSource(context);
+  register("valtren.browseUploadedExtensionSource", async (pkg?: unknown) => {
+    await browseUploadedExtensionSource(context, isOrgExtensionPackage(pkg) ? pkg : undefined);
   });
 
-  register("valtren.approveUploadedExtension", async () => {
-    await reviewUploadedExtension(context, "approve");
+  register("valtren.approveUploadedExtension", async (pkg?: unknown) => {
+    await reviewUploadedExtension(context, "approve", isOrgExtensionPackage(pkg) ? pkg : undefined);
   });
 
-  register("valtren.enableUploadedExtension", async () => {
-    await changeUploadedExtensionState(context, "enable");
+  register("valtren.enableUploadedExtension", async (pkg?: unknown) => {
+    await changeUploadedExtensionState(context, "enable", isOrgExtensionPackage(pkg) ? pkg : undefined);
   });
 
-  register("valtren.disableUploadedExtension", async () => {
-    await changeUploadedExtensionState(context, "disable");
+  register("valtren.disableUploadedExtension", async (pkg?: unknown) => {
+    await changeUploadedExtensionState(context, "disable", isOrgExtensionPackage(pkg) ? pkg : undefined);
   });
 
   register("valtren.browseSemanticTables", async () => {
@@ -237,15 +506,16 @@ export function activate(context: vscode.ExtensionContext) {
     await browseSemanticFields(context, false);
   });
 
-  register("valtren.insertSemanticTable", async () => {
-    await browseSemanticTables(context, true);
+  register("valtren.insertSemanticTable", async (tableName?: unknown) => {
+    await browseSemanticTables(context, true, typeof tableName === "string" ? tableName : undefined);
   });
 
-  register("valtren.insertSemanticField", async () => {
-    await browseSemanticFields(context, true);
+  register("valtren.insertSemanticField", async (fieldRef?: unknown) => {
+    await browseSemanticFields(context, true, typeof fieldRef === "string" ? fieldRef : undefined);
   });
 
   void refreshStatusBar(context);
+  refreshWorkbenchViews();
 }
 
 export function deactivate() {
@@ -393,6 +663,7 @@ async function connectOrganization(context: vscode.ExtensionContext) {
       await saveConnection(context, connection);
       await refreshSemanticCache(context, false);
       await refreshStatusBar(context);
+      refreshWorkbenchViews();
 
       vscode.window.showInformationMessage(
         `Connected to ${connection.orgLabel ?? "your Valtren organization"}${
@@ -503,12 +774,22 @@ async function disconnectOrganization(context: vscode.ExtensionContext) {
   ]);
   await context.globalState.update(semanticCatalogStateKey, undefined);
   await refreshStatusBar(context);
+  refreshWorkbenchViews();
   vscode.window.showInformationMessage("Disconnected from Valtren AI.");
 }
 
-async function browseSemanticTables(context: vscode.ExtensionContext, insertIntoEditor: boolean) {
+async function browseSemanticTables(
+  context: vscode.ExtensionContext,
+  insertIntoEditor: boolean,
+  initialTableName?: string,
+) {
   const catalog = await getSemanticCatalog(context);
   if (!catalog) {
+    return;
+  }
+
+  if (insertIntoEditor && initialTableName) {
+    await insertTextIntoActiveEditor(initialTableName);
     return;
   }
 
@@ -554,9 +835,18 @@ async function browseSemanticTables(context: vscode.ExtensionContext, insertInto
   vscode.window.showInformationMessage(`Opened semantic table ${table.tableName} in Valtren AI output.`);
 }
 
-async function browseSemanticFields(context: vscode.ExtensionContext, insertIntoEditor: boolean) {
+async function browseSemanticFields(
+  context: vscode.ExtensionContext,
+  insertIntoEditor: boolean,
+  initialFieldRef?: string,
+) {
   const catalog = await getSemanticCatalog(context);
   if (!catalog) {
+    return;
+  }
+
+  if (insertIntoEditor && initialFieldRef) {
+    await insertTextIntoActiveEditor(initialFieldRef);
     return;
   }
 
@@ -610,6 +900,7 @@ async function refreshSemanticCache(context: vscode.ExtensionContext, noisy: boo
   const catalog = buildSemanticCatalog(overview);
   await context.globalState.update(semanticCatalogStateKey, catalog);
   await refreshStatusBar(context);
+  refreshWorkbenchViews();
 
   if (noisy) {
     vscode.window.showInformationMessage(
@@ -747,6 +1038,7 @@ async function uploadExtensionZip(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Uploaded ${displayName.trim()} to ${connection.orgLabel ?? "Valtren AI"} with status ${packageStatus}.`,
       );
+      refreshWorkbenchViews();
     },
   );
 }
@@ -816,75 +1108,51 @@ async function listUploadedExtensions(context: vscode.ExtensionContext) {
   );
 }
 
-async function testUploadedExtension(context: vscode.ExtensionContext) {
-  const connection = await getConnection(context);
-  if (!connection) {
-    const action = await vscode.window.showInformationMessage(
-      "Connect to a Valtren organization before testing an uploaded extension.",
-      "Connect now",
-    );
-    if (action === "Connect now") {
-      await connectOrganization(context);
+async function testUploadedExtension(context: vscode.ExtensionContext, selectedPkg?: OrgExtensionPackage) {
+  let selection: { connection: ValtrenConnection; pkg: OrgExtensionPackage } | undefined;
+  if (selectedPkg) {
+    const connection = await getConnection(context);
+    if (!connection) {
+      const action = await vscode.window.showInformationMessage(
+        "Connect to a Valtren organization before testing an uploaded extension.",
+        "Connect now",
+      );
+      if (action === "Connect now") {
+        await connectOrganization(context);
+      }
+      return;
     }
-    return;
-  }
-
-  const payload = await requestJson<OrgExtensionsListResponse>(
-    connection.baseUrl,
-    "/api/admin/org/extensions/packages",
-    connection.apiToken,
-    { method: "GET" },
-  );
-  const packages = (Array.isArray(payload.packages) ? payload.packages : []).filter(
-    (pkg) => pkg.installation?.enabled,
-  );
-
-  if (!packages.length) {
-    vscode.window.showInformationMessage(
-      `There are no enabled uploaded extensions to test in ${connection.orgLabel ?? "Valtren AI"}.`,
+    selection = { connection, pkg: selectedPkg };
+  } else {
+    selection = await pickUploadedExtension(
+      context,
+      "Select an enabled uploaded extension to smoke-test",
+      (pkg) => Boolean(pkg.installation?.enabled),
     );
+  }
+  if (!selection) {
     return;
   }
-
-  const selected = await vscode.window.showQuickPick(
-    packages.map((pkg) => ({
-      label: pkg.display_name || pkg.extension_key || pkg.id,
-      description: `${pkg.status || "unknown"} • ${pkg.installation?.health_status || "unknown health"}`,
-      detail:
-        pkg.installation?.runtime_metadata?.smoke_test_route ||
-        pkg.manifest?.smoke_test_route ||
-        "No stored smoke route metadata",
-      pkg,
-    })),
-    {
-      placeHolder: "Select an enabled uploaded extension to smoke-test",
-      matchOnDescription: true,
-      matchOnDetail: true,
-    },
-  );
-
-  if (!selected) {
-    return;
-  }
+  const label = selection.pkg.display_name || selection.pkg.extension_key || selection.pkg.id;
 
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: `Testing ${selected.label}`,
+      title: `Testing ${label}`,
       cancellable: false,
     },
     async () => {
       const result = await requestJson<OrgExtensionTestResponse>(
-        connection.baseUrl,
-        `/api/admin/org/extensions/${selected.pkg.id}/test`,
-        connection.apiToken,
+        selection.connection.baseUrl,
+        `/api/admin/org/extensions/${selection.pkg.id}/test`,
+        selection.connection.apiToken,
         { method: "POST", body: {} },
       );
 
       outputChannel?.show(true);
       outputChannel?.appendLine(
         [
-          `Extension smoke test: ${selected.label}`,
+          `Extension smoke test: ${label}`,
           `Status: ${result.status_code ?? (result.ok ? 200 : 400)}`,
           result.route ? `Route: ${result.route}` : undefined,
           "Response:",
@@ -897,7 +1165,7 @@ async function testUploadedExtension(context: vscode.ExtensionContext) {
 
       if (result.ok) {
         vscode.window.showInformationMessage(
-          `${selected.label} passed smoke test${result.route ? ` via ${result.route}` : ""}.`,
+          `${label} passed smoke test${result.route ? ` via ${result.route}` : ""}.`,
         );
         return;
       }
@@ -906,13 +1174,16 @@ async function testUploadedExtension(context: vscode.ExtensionContext) {
         result && typeof result.body === "object" && result.body && "error" in (result.body as Record<string, unknown>)
           ? String((result.body as Record<string, unknown>).error)
           : "Smoke test failed";
-      vscode.window.showWarningMessage(`${selected.label}: ${message}`);
+      vscode.window.showWarningMessage(`${label}: ${message}`);
     },
   );
 }
 
-async function browseUploadedExtensionSource(context: vscode.ExtensionContext) {
-  const selection = await pickUploadedExtension(context, "Select an uploaded extension to browse");
+async function browseUploadedExtensionSource(context: vscode.ExtensionContext, selectedPkg?: OrgExtensionPackage) {
+  const selection =
+    selectedPkg && (await getConnection(context))
+      ? { connection: (await getConnection(context))!, pkg: selectedPkg }
+      : await pickUploadedExtension(context, "Select an uploaded extension to browse");
   if (!selection) {
     return;
   }
@@ -952,26 +1223,27 @@ async function browseUploadedExtensionSource(context: vscode.ExtensionContext) {
       { method: "POST", body: { file_path: picked.label } },
     );
 
-    outputChannel?.show(true);
-    outputChannel?.appendLine(
-      [
-        `Uploaded extension source: ${preview.display_name || selection.pkg.display_name || selection.pkg.extension_key || selection.pkg.id}`,
-        `Runtime: ${preview.runtime || "unknown"}`,
-        preview.entry_file ? `Entry: ${preview.entry_file}` : undefined,
-        preview.smoke_test_route ? `Smoke route: ${preview.smoke_test_route}` : undefined,
-        preview.github_url ? `GitHub: ${preview.github_url}${preview.github_ref ? ` @ ${preview.github_ref}` : ""}` : undefined,
-        `File: ${preview.selected_file || picked.label}`,
-        preview.content_message || undefined,
-        "",
-        preview.content || "(No preview available for this file)",
-        "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
+    const previewContent = [
+      `// Uploaded extension source: ${preview.display_name || selection.pkg.display_name || selection.pkg.extension_key || selection.pkg.id}`,
+      `// Runtime: ${preview.runtime || "unknown"}`,
+      preview.entry_file ? `// Entry: ${preview.entry_file}` : undefined,
+      preview.smoke_test_route ? `// Smoke route: ${preview.smoke_test_route}` : undefined,
+      preview.github_url ? `// GitHub: ${preview.github_url}${preview.github_ref ? ` @ ${preview.github_ref}` : ""}` : undefined,
+      preview.content_message ? `// ${preview.content_message}` : undefined,
+      "",
+      preview.content || "(No preview available for this file)",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const language = inferLanguageFromPath(preview.selected_file || picked.label);
+    const doc = await vscode.workspace.openTextDocument({
+      content: previewContent,
+      language,
+    });
+    await vscode.window.showTextDocument(doc, { preview: false });
 
     const action = await vscode.window.showInformationMessage(
-      `Opened ${preview.selected_file || picked.label} in the Valtren AI output channel.`,
+      `Opened ${preview.selected_file || picked.label}.`,
       "Browse another file",
     );
     if (action !== "Browse another file") {
@@ -980,12 +1252,20 @@ async function browseUploadedExtensionSource(context: vscode.ExtensionContext) {
   }
 }
 
-async function reviewUploadedExtension(context: vscode.ExtensionContext, decision: "approve") {
-  const selection = await pickUploadedExtension(
-    context,
-    decision === "approve" ? "Select a pending uploaded extension to approve" : "Select uploaded extension",
-    (pkg) => (decision === "approve" ? pkg.status === "pending_review" : true),
-  );
+async function reviewUploadedExtension(
+  context: vscode.ExtensionContext,
+  decision: "approve",
+  selectedPkg?: OrgExtensionPackage,
+) {
+  const connection = selectedPkg ? await getConnection(context) : undefined;
+  const selection =
+    selectedPkg && connection
+      ? { connection, pkg: selectedPkg }
+      : await pickUploadedExtension(
+          context,
+          decision === "approve" ? "Select a pending uploaded extension to approve" : "Select uploaded extension",
+          (pkg) => (decision === "approve" ? pkg.status === "pending_review" : true),
+        );
   if (!selection) {
     return;
   }
@@ -1003,24 +1283,30 @@ async function reviewUploadedExtension(context: vscode.ExtensionContext, decisio
   vscode.window.showInformationMessage(
     `${label} marked as ${(result.package?.status || "approved").replace(/_/g, " ")}.`,
   );
+  refreshWorkbenchViews();
 }
 
 async function changeUploadedExtensionState(
   context: vscode.ExtensionContext,
   action: "enable" | "disable",
+  selectedPkg?: OrgExtensionPackage,
 ) {
-  const selection = await pickUploadedExtension(
-    context,
-    action === "enable"
-      ? "Select an uploaded extension to enable"
-      : "Select an uploaded extension to disable",
-    (pkg) => {
-      if (action === "enable") {
-        return pkg.status === "approved" || pkg.status === "disabled" || pkg.status === "enabled";
-      }
-      return Boolean(pkg.installation?.enabled);
-    },
-  );
+  const connection = selectedPkg ? await getConnection(context) : undefined;
+  const selection =
+    selectedPkg && connection
+      ? { connection, pkg: selectedPkg }
+      : await pickUploadedExtension(
+          context,
+          action === "enable"
+            ? "Select an uploaded extension to enable"
+            : "Select an uploaded extension to disable",
+          (pkg) => {
+            if (action === "enable") {
+              return pkg.status === "approved" || pkg.status === "disabled" || pkg.status === "enabled";
+            }
+            return Boolean(pkg.installation?.enabled);
+          },
+        );
   if (!selection) {
     return;
   }
@@ -1044,6 +1330,16 @@ async function changeUploadedExtensionState(
   );
   vscode.window.showInformationMessage(
     `${label} ${action}d with runtime status ${runtimeStatus}.`,
+  );
+  refreshWorkbenchViews();
+}
+
+async function fetchOrgExtensions(connection: ValtrenConnection): Promise<OrgExtensionsListResponse> {
+  return requestJson<OrgExtensionsListResponse>(
+    connection.baseUrl,
+    "/api/admin/org/extensions/packages",
+    connection.apiToken,
+    { method: "GET" },
   );
 }
 
@@ -1205,6 +1501,21 @@ function renderValidation(validation: ValidationResult) {
   ];
   outputChannel?.show(true);
   outputChannel?.appendLine(lines.join("\n"));
+}
+
+function refreshWorkbenchViews() {
+  connectionViewProvider?.refresh();
+  semanticsViewProvider?.refresh();
+  extensionsViewProvider?.refresh();
+}
+
+function isOrgExtensionPackage(value: unknown): value is OrgExtensionPackage {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "id" in value &&
+      typeof (value as { id?: unknown }).id === "string",
+  );
 }
 
 async function resolveExtensionRoot(): Promise<string | undefined> {
@@ -1421,6 +1732,20 @@ async function refreshStatusBar(context: vscode.ExtensionContext) {
     .filter(Boolean)
     .join("\n");
   statusBarItem.show();
+}
+
+function inferLanguageFromPath(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".js" || ext === ".mjs" || ext === ".cjs") return "javascript";
+  if (ext === ".ts" || ext === ".mts" || ext === ".cts") return "typescript";
+  if (ext === ".py") return "python";
+  if (ext === ".java") return "java";
+  if (ext === ".cs") return "csharp";
+  if (ext === ".json") return "json";
+  if (ext === ".md") return "markdown";
+  if (ext === ".yml" || ext === ".yaml") return "yaml";
+  if (ext === ".xml") return "xml";
+  return "plaintext";
 }
 
 async function insertTextIntoActiveEditor(value: string) {

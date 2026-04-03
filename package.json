@@ -2,7 +2,7 @@
   "name": "vscode-valtren-extension-tools",
   "displayName": "Valtren AI Extension Tools",
   "description": "Scaffold, connect, and author Valtren AI extensions from VS Code using the official create-valtren-extension CLI and live Valtren semantics.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "valtren-ai",
   "icon": "images/icon.png",
   "license": "MIT",
@@ -57,6 +57,31 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "valtrenWorkbench",
+          "title": "Valtren AI",
+          "icon": "images/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "valtrenWorkbench": [
+        {
+          "id": "valtrenConnection",
+          "name": "Connection"
+        },
+        {
+          "id": "valtrenSemantics",
+          "name": "Semantics"
+        },
+        {
+          "id": "valtrenUploadedExtensions",
+          "name": "Uploaded Extensions"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "valtren.createExtension",

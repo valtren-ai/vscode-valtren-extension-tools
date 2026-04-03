@@ -4,6 +4,18 @@ All notable changes to `vscode-valtren-extension-tools` will be documented in th
 
 The format is based on Keep a Changelog and this extension follows Semantic Versioning.
 
+## [0.7.0] - 2026-04-03
+
+### Added
+
+- Dedicated `Valtren AI` activity-bar workbench with tree views for connection, semantics, and uploaded extensions.
+- Click-to-insert semantic tables and fields directly from the sidebar.
+- Sidebar actions for browsing source and approving, enabling, disabling, and testing uploaded extensions.
+
+### Changed
+
+- Uploaded extension source previews now open in editor tabs instead of only writing to the output channel.
+
 ## [0.6.0] - 2026-04-03
 
 ### Added
