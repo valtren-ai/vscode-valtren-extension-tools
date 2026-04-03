@@ -4,6 +4,12 @@ All notable changes to `vscode-valtren-extension-tools` will be documented in th
 
 The format is based on Keep a Changelog and this extension follows Semantic Versioning.
 
+## [0.11.1] - 2026-04-03
+
+### Fixed
+
+- Restored runtime dependency packaging in the published VS Code extension so command activation works correctly after install/update.
+
 ## [0.11.0] - 2026-04-03
 
 ### Added
