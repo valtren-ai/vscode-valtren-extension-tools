@@ -158,6 +158,17 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 let connectionViewProvider: ConnectionTreeProvider | undefined;
 let semanticsViewProvider: SemanticsTreeProvider | undefined;
 let extensionsViewProvider: ExtensionsTreeProvider | undefined;
+const semanticDocumentSelector: vscode.DocumentSelector = [
+  { language: "javascript" },
+  { language: "typescript" },
+  { language: "python" },
+  { language: "java" },
+  { language: "csharp" },
+  { language: "json" },
+  { language: "yaml" },
+  { language: "plaintext" },
+  { language: "markdown" },
+];
 
 type ConnectionTreeNode =
   | { kind: "connect" }
@@ -431,6 +442,19 @@ export function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("valtrenUploadedExtensions", extensionsViewProvider),
+  );
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(
+      semanticDocumentSelector,
+      createSemanticCompletionProvider(context),
+      ".",
+    ),
+  );
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      semanticDocumentSelector,
+      createSemanticHoverProvider(context),
+    ),
   );
 
   const register = (command: string, handler: (...args: unknown[]) => unknown) =>
@@ -1509,6 +1533,88 @@ function refreshWorkbenchViews() {
   extensionsViewProvider?.refresh();
 }
 
+function createSemanticCompletionProvider(
+  context: vscode.ExtensionContext,
+): vscode.CompletionItemProvider {
+  return {
+    provideCompletionItems(document, position) {
+      const catalog = context.globalState.get<SemanticCatalog>(semanticCatalogStateKey);
+      if (!catalog?.tables?.length) {
+        return [];
+      }
+
+      const linePrefix = document.lineAt(position).text.slice(0, position.character);
+      const tokenMatch = linePrefix.match(/([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]*)?)$/);
+      const token = tokenMatch?.[1] ?? "";
+
+      if (token.includes(".")) {
+        const [tableName, partialField = ""] = token.split(".", 2);
+        const table = catalog.tables.find((item) => item.tableName === tableName);
+        if (!table) {
+          return [];
+        }
+        return table.fields
+          .filter((field) => !partialField || field.fieldName.startsWith(partialField))
+          .map((field) => {
+            const item = new vscode.CompletionItem(field.fieldName, vscode.CompletionItemKind.Field);
+            item.insertText = field.fieldName;
+            item.detail = `${field.tableName}.${field.fieldName}${field.fieldType ? ` • ${field.fieldType}` : ""}`;
+            item.documentation = buildSemanticFieldMarkdown(field);
+            item.sortText = `1-${field.fieldName}`;
+            return item;
+          });
+      }
+
+      return catalog.tables
+        .filter((table) => !token || table.tableName.startsWith(token))
+        .map((table) => {
+          const item = new vscode.CompletionItem(table.tableName, vscode.CompletionItemKind.Struct);
+          item.insertText = table.tableName;
+          item.detail = table.displayName || "Semantic table";
+          item.documentation = buildSemanticTableMarkdown(table);
+          item.sortText = `0-${table.tableName}`;
+          return item;
+        });
+    },
+  };
+}
+
+function createSemanticHoverProvider(context: vscode.ExtensionContext): vscode.HoverProvider {
+  return {
+    provideHover(document, position) {
+      const catalog = context.globalState.get<SemanticCatalog>(semanticCatalogStateKey);
+      if (!catalog?.tables?.length) {
+        return undefined;
+      }
+
+      const range = document.getWordRangeAtPosition(position, /[A-Za-z0-9_.]+/);
+      if (!range) {
+        return undefined;
+      }
+      const value = document.getText(range);
+      if (!value) {
+        return undefined;
+      }
+
+      if (value.includes(".")) {
+        const [tableName, fieldName] = value.split(".", 2);
+        const table = catalog.tables.find((item) => item.tableName === tableName);
+        const field = table?.fields.find((item) => item.fieldName === fieldName);
+        if (!field) {
+          return undefined;
+        }
+        return new vscode.Hover(buildSemanticFieldMarkdown(field), range);
+      }
+
+      const table = catalog.tables.find((item) => item.tableName === value);
+      if (!table) {
+        return undefined;
+      }
+      return new vscode.Hover(buildSemanticTableMarkdown(table), range);
+    },
+  };
+}
+
 function isOrgExtensionPackage(value: unknown): value is OrgExtensionPackage {
   return Boolean(
     value &&
@@ -1746,6 +1852,40 @@ function inferLanguageFromPath(filePath: string): string {
   if (ext === ".yml" || ext === ".yaml") return "yaml";
   if (ext === ".xml") return "xml";
   return "plaintext";
+}
+
+function buildSemanticTableMarkdown(table: SemanticTable): vscode.MarkdownString {
+  const markdown = new vscode.MarkdownString(undefined, true);
+  markdown.appendMarkdown(`**${table.tableName}**`);
+  if (table.displayName) {
+    markdown.appendMarkdown(`\n\n${table.displayName}`);
+  }
+  if (table.description) {
+    markdown.appendMarkdown(`\n\n${table.description}`);
+  }
+  markdown.appendMarkdown(`\n\nFields: ${table.fields.length}`);
+  const previewFields = table.fields.slice(0, 8).map((field) => `\`${field.fieldName}\``);
+  if (previewFields.length) {
+    markdown.appendMarkdown(`\n\n${previewFields.join(", ")}`);
+    if (table.fields.length > previewFields.length) {
+      markdown.appendMarkdown(`, and ${table.fields.length - previewFields.length} more`);
+    }
+  }
+  markdown.isTrusted = false;
+  return markdown;
+}
+
+function buildSemanticFieldMarkdown(field: SemanticField): vscode.MarkdownString {
+  const markdown = new vscode.MarkdownString(undefined, true);
+  markdown.appendMarkdown(`**${field.tableName}.${field.fieldName}**`);
+  if (field.fieldType) {
+    markdown.appendMarkdown(`\n\nType: \`${field.fieldType}\``);
+  }
+  if (field.description) {
+    markdown.appendMarkdown(`\n\n${field.description}`);
+  }
+  markdown.isTrusted = false;
+  return markdown;
 }
 
 async function insertTextIntoActiveEditor(value: string) {
