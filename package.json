@@ -2,7 +2,7 @@
   "name": "vscode-valtren-extension-tools",
   "displayName": "Valtren AI Extension Tools",
   "description": "Scaffold, connect, and author Valtren AI extensions from VS Code using the official create-valtren-extension CLI and live Valtren semantics.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "valtren-ai",
   "icon": "images/icon.png",
   "license": "MIT",
@@ -45,6 +45,10 @@
     "onCommand:valtren.uploadExtensionZip",
     "onCommand:valtren.listUploadedExtensions",
     "onCommand:valtren.testUploadedExtension",
+    "onCommand:valtren.browseUploadedExtensionSource",
+    "onCommand:valtren.approveUploadedExtension",
+    "onCommand:valtren.enableUploadedExtension",
+    "onCommand:valtren.disableUploadedExtension",
     "onCommand:valtren.browseSemanticTables",
     "onCommand:valtren.browseSemanticFields",
     "onCommand:valtren.insertSemanticTable",
@@ -102,6 +106,26 @@
       {
         "command": "valtren.testUploadedExtension",
         "title": "Test Uploaded Extension",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.browseUploadedExtensionSource",
+        "title": "Browse Uploaded Extension Source",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.approveUploadedExtension",
+        "title": "Approve Uploaded Extension",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.enableUploadedExtension",
+        "title": "Enable Uploaded Extension",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.disableUploadedExtension",
+        "title": "Disable Uploaded Extension",
         "category": "Valtren AI"
       },
       {

@@ -124,6 +124,23 @@ type OrgExtensionTestResponse = {
   body?: unknown;
 };
 
+type OrgExtensionSourceResponse = {
+  extension_key?: string;
+  display_name?: string;
+  runtime?: string;
+  entry_file?: string | null;
+  smoke_test_route?: string | null;
+  source_type?: string;
+  github_url?: string | null;
+  github_ref?: string | null;
+  github_subdirectory?: string | null;
+  files?: string[];
+  selected_file?: string | null;
+  content?: string | null;
+  content_truncated?: boolean;
+  content_message?: string | null;
+};
+
 const secretKeys = {
   apiToken: "valtren.apiToken",
   baseUrl: "valtren.baseUrl",
@@ -194,6 +211,22 @@ export function activate(context: vscode.ExtensionContext) {
 
   register("valtren.testUploadedExtension", async () => {
     await testUploadedExtension(context);
+  });
+
+  register("valtren.browseUploadedExtensionSource", async () => {
+    await browseUploadedExtensionSource(context);
+  });
+
+  register("valtren.approveUploadedExtension", async () => {
+    await reviewUploadedExtension(context, "approve");
+  });
+
+  register("valtren.enableUploadedExtension", async () => {
+    await changeUploadedExtensionState(context, "enable");
+  });
+
+  register("valtren.disableUploadedExtension", async () => {
+    await changeUploadedExtensionState(context, "disable");
   });
 
   register("valtren.browseSemanticTables", async () => {
@@ -389,6 +422,10 @@ async function showConnection(context: vscode.ExtensionContext) {
     "Upload extension ZIP",
     "List uploaded extensions",
     "Test uploaded extension",
+    "Browse uploaded extension source",
+    "Approve uploaded extension",
+    "Enable uploaded extension",
+    "Disable uploaded extension",
     "Browse semantic tables",
     "Browse semantic fields",
     "Refresh semantic cache",
@@ -420,6 +457,22 @@ async function showConnection(context: vscode.ExtensionContext) {
   }
   if (picked === "Test uploaded extension") {
     await testUploadedExtension(context);
+    return;
+  }
+  if (picked === "Browse uploaded extension source") {
+    await browseUploadedExtensionSource(context);
+    return;
+  }
+  if (picked === "Approve uploaded extension") {
+    await reviewUploadedExtension(context, "approve");
+    return;
+  }
+  if (picked === "Enable uploaded extension") {
+    await changeUploadedExtensionState(context, "enable");
+    return;
+  }
+  if (picked === "Disable uploaded extension") {
+    await changeUploadedExtensionState(context, "disable");
     return;
   }
   if (picked === "Browse semantic tables") {
@@ -856,6 +909,200 @@ async function testUploadedExtension(context: vscode.ExtensionContext) {
       vscode.window.showWarningMessage(`${selected.label}: ${message}`);
     },
   );
+}
+
+async function browseUploadedExtensionSource(context: vscode.ExtensionContext) {
+  const selection = await pickUploadedExtension(context, "Select an uploaded extension to browse");
+  if (!selection) {
+    return;
+  }
+
+  let preview = await requestJson<OrgExtensionSourceResponse>(
+    selection.connection.baseUrl,
+    `/api/admin/org/extensions/${selection.pkg.id}/source`,
+    selection.connection.apiToken,
+    { method: "POST", body: {} },
+  );
+
+  const files = Array.isArray(preview.files) ? preview.files : [];
+  if (!files.length) {
+    vscode.window.showInformationMessage("This uploaded extension does not expose any previewable files.");
+    return;
+  }
+
+  while (true) {
+    const picked = await vscode.window.showQuickPick(
+      files.map((file) => ({
+        label: file,
+        description: file === preview.selected_file ? "selected" : undefined,
+      })),
+      {
+        placeHolder: `${preview.display_name || selection.pkg.display_name || selection.pkg.extension_key || selection.pkg.id} source files`,
+        matchOnDescription: true,
+      },
+    );
+    if (!picked) {
+      return;
+    }
+
+    preview = await requestJson<OrgExtensionSourceResponse>(
+      selection.connection.baseUrl,
+      `/api/admin/org/extensions/${selection.pkg.id}/source`,
+      selection.connection.apiToken,
+      { method: "POST", body: { file_path: picked.label } },
+    );
+
+    outputChannel?.show(true);
+    outputChannel?.appendLine(
+      [
+        `Uploaded extension source: ${preview.display_name || selection.pkg.display_name || selection.pkg.extension_key || selection.pkg.id}`,
+        `Runtime: ${preview.runtime || "unknown"}`,
+        preview.entry_file ? `Entry: ${preview.entry_file}` : undefined,
+        preview.smoke_test_route ? `Smoke route: ${preview.smoke_test_route}` : undefined,
+        preview.github_url ? `GitHub: ${preview.github_url}${preview.github_ref ? ` @ ${preview.github_ref}` : ""}` : undefined,
+        `File: ${preview.selected_file || picked.label}`,
+        preview.content_message || undefined,
+        "",
+        preview.content || "(No preview available for this file)",
+        "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+
+    const action = await vscode.window.showInformationMessage(
+      `Opened ${preview.selected_file || picked.label} in the Valtren AI output channel.`,
+      "Browse another file",
+    );
+    if (action !== "Browse another file") {
+      return;
+    }
+  }
+}
+
+async function reviewUploadedExtension(context: vscode.ExtensionContext, decision: "approve") {
+  const selection = await pickUploadedExtension(
+    context,
+    decision === "approve" ? "Select a pending uploaded extension to approve" : "Select uploaded extension",
+    (pkg) => (decision === "approve" ? pkg.status === "pending_review" : true),
+  );
+  if (!selection) {
+    return;
+  }
+
+  const result = await requestJson<{ package?: OrgExtensionPackage }>(
+    selection.connection.baseUrl,
+    `/api/admin/org/extensions/${selection.pkg.id}/review`,
+    selection.connection.apiToken,
+    { method: "POST", body: { decision } },
+  );
+
+  const label = selection.pkg.display_name || selection.pkg.extension_key || selection.pkg.id;
+  outputChannel?.show(true);
+  outputChannel?.appendLine(`${label}: review decision ${decision} applied.`);
+  vscode.window.showInformationMessage(
+    `${label} marked as ${(result.package?.status || "approved").replace(/_/g, " ")}.`,
+  );
+}
+
+async function changeUploadedExtensionState(
+  context: vscode.ExtensionContext,
+  action: "enable" | "disable",
+) {
+  const selection = await pickUploadedExtension(
+    context,
+    action === "enable"
+      ? "Select an uploaded extension to enable"
+      : "Select an uploaded extension to disable",
+    (pkg) => {
+      if (action === "enable") {
+        return pkg.status === "approved" || pkg.status === "disabled" || pkg.status === "enabled";
+      }
+      return Boolean(pkg.installation?.enabled);
+    },
+  );
+  if (!selection) {
+    return;
+  }
+
+  const result = await requestJson<{
+    package?: OrgExtensionPackage;
+    installation?: OrgExtensionPackage["installation"];
+    message?: string;
+  }>(
+    selection.connection.baseUrl,
+    `/api/admin/org/extensions/${selection.pkg.id}/${action}`,
+    selection.connection.apiToken,
+    { method: "POST", body: {} },
+  );
+
+  const label = selection.pkg.display_name || selection.pkg.extension_key || selection.pkg.id;
+  const runtimeStatus = result.installation?.runtime_status || "unknown";
+  outputChannel?.show(true);
+  outputChannel?.appendLine(
+    `${label}: ${action} completed (${runtimeStatus})${result.message ? ` — ${result.message}` : ""}`,
+  );
+  vscode.window.showInformationMessage(
+    `${label} ${action}d with runtime status ${runtimeStatus}.`,
+  );
+}
+
+async function pickUploadedExtension(
+  context: vscode.ExtensionContext,
+  placeHolder: string,
+  predicate: (pkg: OrgExtensionPackage) => boolean = () => true,
+): Promise<{ connection: ValtrenConnection; pkg: OrgExtensionPackage } | undefined> {
+  const connection = await getConnection(context);
+  if (!connection) {
+    const action = await vscode.window.showInformationMessage(
+      "Connect to a Valtren organization first.",
+      "Connect now",
+    );
+    if (action === "Connect now") {
+      await connectOrganization(context);
+    }
+    return undefined;
+  }
+
+  const payload = await requestJson<OrgExtensionsListResponse>(
+    connection.baseUrl,
+    "/api/admin/org/extensions/packages",
+    connection.apiToken,
+    { method: "GET" },
+  );
+  const packages = (Array.isArray(payload.packages) ? payload.packages : []).filter(predicate);
+
+  if (!packages.length) {
+    vscode.window.showInformationMessage(
+      `No matching uploaded extensions were found in ${connection.orgLabel ?? "Valtren AI"}.`,
+    );
+    return undefined;
+  }
+
+  const selected = await vscode.window.showQuickPick(
+    packages.map((pkg) => ({
+      label: pkg.display_name || pkg.extension_key || pkg.id,
+      description: `${pkg.status || "unknown"}${pkg.installation?.enabled ? " • enabled" : ""}`,
+      detail:
+        pkg.installation?.runtime_metadata?.smoke_test_route ||
+        pkg.manifest?.smoke_test_route ||
+        pkg.entry_file ||
+        pkg.source_type ||
+        undefined,
+      pkg,
+    })),
+    {
+      placeHolder,
+      matchOnDescription: true,
+      matchOnDetail: true,
+    },
+  );
+
+  if (!selected) {
+    return undefined;
+  }
+
+  return { connection, pkg: selected.pkg };
 }
 
 async function getSemanticCatalog(context: vscode.ExtensionContext): Promise<SemanticCatalog | undefined> {
