@@ -20,6 +20,7 @@ This release adds a dedicated `Valtren AI` activity-bar workbench with:
 - `Semantics`
   - browse semantic tables and fields from the connected Valtren org
   - click a table or field to insert it into the active editor
+  - get autocomplete and hover docs while writing table and `table.field` references
 - `Uploaded Extensions`
   - browse uploaded org extensions
   - open source previews
@@ -71,6 +72,16 @@ You can still use the command palette, but the sidebar is now the fastest day-to
 - `Valtren AI: Open Extension Examples`
   - opens the public examples repo in the browser
 
+## Semantic authoring assistance
+
+Once you connect to a Valtren organization and refresh semantics, the extension now helps directly inside the editor:
+
+- semantic table autocomplete
+- semantic `table.field` autocomplete after typing `.`
+- hover docs for tables and fields
+
+This makes it much easier to write extension logic against real business entities without constantly switching back to the browser.
+
 ## Secure connection model
 
 - API tokens are stored in VS Code `SecretStorage`, not in your workspace files.
@@ -119,6 +130,7 @@ This release adds the first real `Valtren Extension Workbench` slice:
 - live semantic table browsing
 - live semantic field browsing
 - editor insertion commands
+- semantic autocomplete and hover docs in the editor
 
 Next steps will add:
 

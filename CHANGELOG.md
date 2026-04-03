@@ -4,6 +4,18 @@ All notable changes to `vscode-valtren-extension-tools` will be documented in th
 
 The format is based on Keep a Changelog and this extension follows Semantic Versioning.
 
+## [0.8.0] - 2026-04-03
+
+### Added
+
+- Semantic table autocomplete inside the editor.
+- Semantic `table.field` autocomplete after typing `.`.
+- Hover documentation for semantic tables and fields.
+
+### Changed
+
+- The extension now activates on startup and when the Valtren workbench view opens, so semantic authoring features are available without a manual warm-up command.
+
 ## [0.7.0] - 2026-04-03
 
 ### Added
