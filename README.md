@@ -3,7 +3,7 @@
 [![CI](https://github.com/valtren-ai/vscode-valtren-extension-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/valtren-ai/vscode-valtren-extension-tools/actions/workflows/ci.yml)
 [![Publish VS Code Extension](https://github.com/valtren-ai/vscode-valtren-extension-tools/actions/workflows/publish.yml/badge.svg)](https://github.com/valtren-ai/vscode-valtren-extension-tools/actions/workflows/publish.yml)
 
-Scaffold Valtren AI extensions directly from VS Code using the official `create-valtren-extension` CLI.
+Scaffold Valtren AI extensions directly from VS Code, connect to a real Valtren organization, and browse live semantic tables and fields while you author extension logic.
 
 This extension builds on the published scaffold CLI:
 
@@ -17,12 +17,38 @@ It is designed for teams who want a lightweight editor workflow without duplicat
   - prompts for extension name and runtime
   - opens a folder picker
   - runs `npx create-valtren-extension ...` in a VS Code terminal
+- `Valtren AI: Connect to Organization`
+  - stores your Valtren base URL and API token securely in VS Code SecretStorage
+  - validates the token against your organization
+- `Valtren AI: Show Connected Organization`
+  - shows the active org, roles, and quick actions
+- `Valtren AI: Disconnect from Organization`
+  - clears the saved token and cached semantic metadata
+- `Valtren AI: Browse Semantic Tables`
+  - loads live semantic tables from your connected Valtren org
+- `Valtren AI: Browse Semantic Fields`
+  - loads live table.field references from your connected Valtren org
+- `Valtren AI: Insert Semantic Table`
+  - inserts the selected semantic table name into the active editor
+- `Valtren AI: Insert Semantic Field`
+  - inserts the selected `table.field` reference into the active editor
+- `Valtren AI: Refresh Semantic Cache`
+  - refreshes semantic metadata from the platform
 - `Valtren AI: Open Extension Examples`
   - opens the public examples repo in the browser
 
-## Why this extension is lightweight
+## Secure connection model
 
-This extension does not re-implement scaffolding logic. It calls the published Valtren CLI so the SDK remains the source of truth.
+- API tokens are stored in VS Code `SecretStorage`, not in your workspace files.
+- The extension currently uses:
+  - `POST /api/org/context`
+  - `POST /api/data-semantics/overview`
+  - `POST /api/platform/version`
+- Semantic data is cached locally in VS Code storage for faster authoring.
+
+## Why this extension stays lightweight
+
+This extension does not re-implement scaffolding logic. It calls the published Valtren CLI so the SDK remains the source of truth, then layers secure platform connectivity and semantic browsing on top.
 
 ## Current runtime templates
 
@@ -36,10 +62,28 @@ This extension does not re-implement scaffolding logic. It calls the published V
 ## Recommended flow
 
 1. Run `Valtren AI: Create Extension`
-2. Pick the runtime that matches your team and deployment model
-3. Use the generated scaffold as your starting point
-4. Cross-check the public guides in [valtren-ai/extension-examples](https://github.com/valtren-ai/extension-examples)
-5. Validate, smoke-test, and version the extension before production rollout
+2. Run `Valtren AI: Connect to Organization`
+3. Pick the runtime that matches your team and deployment model
+4. Use `Insert Semantic Table` and `Insert Semantic Field` while writing logic
+5. Cross-check the public guides in [valtren-ai/extension-examples](https://github.com/valtren-ai/extension-examples)
+6. Validate, smoke-test, and version the extension before production rollout
+
+## Current workbench scope
+
+This release adds the first real `Valtren Extension Workbench` slice:
+
+- secure org connection
+- status-bar connection summary
+- live semantic table browsing
+- live semantic field browsing
+- editor insertion commands
+
+Next steps will add:
+
+- package and validate current extension
+- upload ZIP to a connected org
+- trigger org smoke tests from VS Code
+- browse uploaded extension source
 
 ## Support
 

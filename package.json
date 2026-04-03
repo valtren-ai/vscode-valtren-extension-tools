@@ -1,8 +1,8 @@
 {
   "name": "vscode-valtren-extension-tools",
   "displayName": "Valtren AI Extension Tools",
-  "description": "Scaffold Valtren AI extensions from VS Code using the official create-valtren-extension CLI.",
-  "version": "0.2.2",
+  "description": "Scaffold, connect, and author Valtren AI extensions from VS Code using the official create-valtren-extension CLI and live Valtren semantics.",
+  "version": "0.3.0",
   "publisher": "valtren-ai",
   "icon": "images/icon.png",
   "license": "MIT",
@@ -36,7 +36,15 @@
   },
   "activationEvents": [
     "onCommand:valtren.createExtension",
-    "onCommand:valtren.openExamples"
+    "onCommand:valtren.openExamples",
+    "onCommand:valtren.connectOrganization",
+    "onCommand:valtren.showConnection",
+    "onCommand:valtren.disconnectOrganization",
+    "onCommand:valtren.browseSemanticTables",
+    "onCommand:valtren.browseSemanticFields",
+    "onCommand:valtren.insertSemanticTable",
+    "onCommand:valtren.insertSemanticField",
+    "onCommand:valtren.refreshSemanticCache"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -49,6 +57,46 @@
       {
         "command": "valtren.openExamples",
         "title": "Open Extension Examples",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.connectOrganization",
+        "title": "Connect to Organization",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.showConnection",
+        "title": "Show Connected Organization",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.disconnectOrganization",
+        "title": "Disconnect from Organization",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.browseSemanticTables",
+        "title": "Browse Semantic Tables",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.browseSemanticFields",
+        "title": "Browse Semantic Fields",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.insertSemanticTable",
+        "title": "Insert Semantic Table",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.insertSemanticField",
+        "title": "Insert Semantic Field",
+        "category": "Valtren AI"
+      },
+      {
+        "command": "valtren.refreshSemanticCache",
+        "title": "Refresh Semantic Cache",
         "category": "Valtren AI"
       }
     ]
