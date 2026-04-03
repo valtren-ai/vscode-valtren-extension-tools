@@ -4,6 +4,17 @@ All notable changes to `vscode-valtren-extension-tools` will be documented in th
 
 The format is based on Keep a Changelog and this extension follows Semantic Versioning.
 
+## [0.10.0] - 2026-04-03
+
+### Added
+
+- Insert-snippet actions directly inside the semantic schema explorer.
+- Inline diagnostics for unknown semantic table and `table.field` references inside quoted strings.
+
+### Changed
+
+- The semantic explorer now acts as both a browser and a fast authoring surface.
+
 ## [0.9.0] - 2026-04-03
 
 ### Added
