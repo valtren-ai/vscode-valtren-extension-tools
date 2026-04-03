@@ -13,7 +13,6 @@ The format is based on Keep a Changelog and this extension follows Semantic Vers
 - Commands to browse semantic tables and fields from a connected Valtren org.
 - Commands to insert semantic table and field references into the active editor.
 - Semantic cache refresh command powered by live platform APIs.
-
 ## [0.2.2] - 2026-03-28
 
 ### Changed
