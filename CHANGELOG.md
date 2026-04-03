@@ -4,6 +4,17 @@ All notable changes to `vscode-valtren-extension-tools` will be documented in th
 
 The format is based on Keep a Changelog and this extension follows Semantic Versioning.
 
+## [0.9.0] - 2026-04-03
+
+### Added
+
+- Lightweight semantic schema explorer panels for selected tables.
+- Snippet-style semantic completion items for fast `table.field` authoring.
+
+### Changed
+
+- The semantics tree now exposes an explicit explorer action per table while preserving field insertion.
+
 ## [0.8.0] - 2026-04-03
 
 ### Added
