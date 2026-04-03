@@ -1667,7 +1667,8 @@ function createSemanticCompletionProvider(
           );
           snippetItem.sortText = `1-${table.tableName}`;
           return [item, snippetItem];
-        });
+        })
+        .concat(token ? [] : buildSemanticPatternSnippets(catalog));
     },
   };
 }
@@ -1979,6 +1980,160 @@ function buildSemanticFieldMarkdown(field: SemanticField): vscode.MarkdownString
   }
   markdown.isTrusted = false;
   return markdown;
+}
+
+function buildSemanticPatternSnippets(catalog: SemanticCatalog): vscode.CompletionItem[] {
+  const riskTable = pickSemanticTable(catalog, [
+    /risk/i,
+    /case/i,
+    /incident/i,
+    /dispatch/i,
+    /order/i,
+  ]);
+  const riskScoreField = pickSemanticField(riskTable, [/risk/i, /score/i, /severity/i]);
+  const riskStatusField = pickSemanticField(riskTable, [/status/i, /state/i]);
+
+  const mapperTable = pickSemanticTable(catalog, [/header/i, /master/i, /entity/i, /order/i, /case/i]);
+  const mapperIdField = pickSemanticField(mapperTable, [/(^id$|_id$|key)/i]);
+  const mapperStatusField = pickSemanticField(mapperTable, [/status/i, /state/i]);
+  const mapperOwnerField = pickSemanticField(mapperTable, [/owner/i, /planner/i, /manager/i, /assignee/i]);
+
+  const summaryTable = pickSemanticTable(catalog, [/case/i, /order/i, /incident/i, /loan/i, /claim/i]);
+  const summaryTitleField = pickSemanticField(summaryTable, [/title/i, /name/i, /summary/i, /description/i]);
+  const summaryStatusField = pickSemanticField(summaryTable, [/status/i, /state/i]);
+  const summaryAmountField = pickSemanticField(summaryTable, [/amount/i, /value/i, /total/i, /score/i]);
+
+  const timelineTable = pickSemanticTable(catalog, [
+    /timeline/i,
+    /event/i,
+    /activity/i,
+    /schedule/i,
+    /dispatch/i,
+    /delivery/i,
+    /history/i,
+  ]);
+  const timelineStartField = pickSemanticField(timelineTable, [/start/i, /created/i, /date/i, /time/i]);
+  const timelineEndField = pickSemanticField(timelineTable, [/end/i, /updated/i, /completed/i, /date/i, /time/i]);
+  const timelineStatusField = pickSemanticField(timelineTable, [/status/i, /state/i, /stage/i]);
+
+  return [
+    buildPatternSnippetItem({
+      label: "Risk rule pattern",
+      detail: "Semantic pattern • risk rule",
+      documentation:
+        `Insert a risk rule skeleton using **${riskTable.tableName}** and semantic field references.`,
+      snippet: [
+        "{",
+        '\t"id": "${1:risk_rule_id}",',
+        `\t"source_table": "${riskTable.tableName}",`,
+        `\t"score_field": "${riskTable.tableName}.${riskScoreField}",`,
+        `\t"condition": "${riskTable.tableName}.${riskStatusField} == \${2:\\"blocked\\"}",`,
+        '\t"severity": "${3:high}",',
+        '\t"summary": "${4:Describe why this record should be escalated}"',
+        "}",
+      ].join("\n"),
+      sortText: "2-risk-rule",
+    }),
+    buildPatternSnippetItem({
+      label: "Entity mapper pattern",
+      detail: "Semantic pattern • entity mapper",
+      documentation:
+        `Insert an entity mapper skeleton using **${mapperTable.tableName}** as the source table.`,
+      snippet: [
+        "{",
+        '\t"source_table": "${1:' + mapperTable.tableName + '}",',
+        '\t"entity_type": "${2:business_entity}",',
+        '\t"key_field": "${3:' + mapperTable.tableName + "." + mapperIdField + '}",',
+        '\t"mappings": {',
+        '\t\t"id": "${4:' + mapperTable.tableName + "." + mapperIdField + '}",',
+        '\t\t"status": "${5:' + mapperTable.tableName + "." + mapperStatusField + '}",',
+        '\t\t"owner": "${6:' + mapperTable.tableName + "." + mapperOwnerField + '}"',
+        "\t}",
+        "}",
+      ].join("\n"),
+      sortText: "2-entity-mapper",
+    }),
+    buildPatternSnippetItem({
+      label: "Case summary pattern",
+      detail: "Semantic pattern • case summary",
+      documentation:
+        `Insert a case summary skeleton using **${summaryTable.tableName}** fields for title, status, and metric facts.`,
+      snippet: [
+        "{",
+        '\t"case_table": "${1:' + summaryTable.tableName + '}",',
+        '\t"title_field": "${2:' + summaryTable.tableName + "." + summaryTitleField + '}",',
+        '\t"status_field": "${3:' + summaryTable.tableName + "." + summaryStatusField + '}",',
+        '\t"fact_fields": [',
+        '\t\t"${4:' + summaryTable.tableName + "." + summaryAmountField + '}",',
+        '\t\t"${5:' + summaryTable.tableName + "." + summaryStatusField + '}"',
+        "\t],",
+        '\t"narrative": "${6:Summarize the most important case movement in one sentence}"',
+        "}",
+      ].join("\n"),
+      sortText: "2-case-summary",
+    }),
+    buildPatternSnippetItem({
+      label: "Timeline projection pattern",
+      detail: "Semantic pattern • timeline projection",
+      documentation:
+        `Insert a timeline projection skeleton using **${timelineTable.tableName}** event semantics.`,
+      snippet: [
+        "{",
+        '\t"timeline_table": "${1:' + timelineTable.tableName + '}",',
+        '\t"start_at": "${2:' + timelineTable.tableName + "." + timelineStartField + '}",',
+        '\t"end_at": "${3:' + timelineTable.tableName + "." + timelineEndField + '}",',
+        '\t"status_field": "${4:' + timelineTable.tableName + "." + timelineStatusField + '}",',
+        '\t"group_by": "${5:' + timelineTable.tableName + "." + pickSemanticField(timelineTable, [/(^id$|_id$|key)/i, /order/i, /case/i]) + '}"',
+        "}",
+      ].join("\n"),
+      sortText: "2-timeline-projection",
+    }),
+  ];
+}
+
+function buildPatternSnippetItem(input: {
+  label: string;
+  detail: string;
+  documentation: string;
+  snippet: string;
+  sortText: string;
+}): vscode.CompletionItem {
+  const item = new vscode.CompletionItem(input.label, vscode.CompletionItemKind.Snippet);
+  item.insertText = new vscode.SnippetString(input.snippet);
+  item.detail = input.detail;
+  item.documentation = new vscode.MarkdownString(input.documentation);
+  item.sortText = input.sortText;
+  return item;
+}
+
+function pickSemanticTable(catalog: SemanticCatalog, patterns: RegExp[]): SemanticTable {
+  for (const pattern of patterns) {
+    const match = catalog.tables.find(
+      (table) =>
+        pattern.test(table.tableName) ||
+        pattern.test(table.displayName || "") ||
+        pattern.test(table.description || ""),
+    );
+    if (match) {
+      return match;
+    }
+  }
+  return catalog.tables[0];
+}
+
+function pickSemanticField(table: SemanticTable, patterns: RegExp[]): string {
+  for (const pattern of patterns) {
+    const match = table.fields.find(
+      (field) =>
+        pattern.test(field.fieldName) ||
+        pattern.test(field.description || "") ||
+        pattern.test(field.fieldType || ""),
+    );
+    if (match) {
+      return match.fieldName;
+    }
+  }
+  return table.fields[0]?.fieldName || "field_name";
 }
 
 function renderSemanticTableExplorer(table: SemanticTable): string {

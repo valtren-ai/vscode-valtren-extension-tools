@@ -4,6 +4,20 @@ All notable changes to `vscode-valtren-extension-tools` will be documented in th
 
 The format is based on Keep a Changelog and this extension follows Semantic Versioning.
 
+## [0.11.0] - 2026-04-03
+
+### Added
+
+- Semantic-aware pattern snippets for common extension authoring flows:
+  - risk rule
+  - entity mapper
+  - case summary
+  - timeline projection
+
+### Changed
+
+- Pattern snippets now pick smart default semantic tables and fields from the connected organization catalog.
+
 ## [0.10.0] - 2026-04-03
 
 ### Added

@@ -89,6 +89,11 @@ You also get snippet-style suggestions such as:
 - `table_name`
 - `table_name.field_name`
 - quick field-reference snippets built from the first known field in a table
+- semantic-aware pattern snippets for:
+  - risk rule
+  - entity mapper
+  - case summary
+  - timeline projection
 
 The extension also adds inline diagnostics for unknown semantic references inside quoted strings, for example:
 
@@ -147,6 +152,7 @@ This release adds the first real `Valtren Extension Workbench` slice:
 - editor insertion commands
 - semantic autocomplete and hover docs in the editor
 - semantic snippets and schema explorer panels
+- semantic-aware pattern snippets for common extension logic blocks
 - inline diagnostics for unknown semantic references in quoted strings
 
 Next steps will add:
