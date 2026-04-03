@@ -181,6 +181,7 @@ type ConnectionTreeNode =
 type SemanticsTreeNode =
   | { kind: "empty"; label: string }
   | { kind: "table"; table: SemanticTable }
+  | { kind: "tableAction"; action: "explore"; table: SemanticTable }
   | { kind: "field"; field: SemanticField };
 
 type ExtensionTreeNode =
@@ -295,6 +296,16 @@ class SemanticsTreeProvider implements vscode.TreeDataProvider<SemanticsTreeNode
       };
       return item;
     }
+    if (element.kind === "tableAction") {
+      const item = new vscode.TreeItem("Open schema explorer", vscode.TreeItemCollapsibleState.None);
+      item.iconPath = new vscode.ThemeIcon("preview");
+      item.command = {
+        command: "valtren.openSemanticTableExplorer",
+        title: "Open Semantic Table Explorer",
+        arguments: [element.table.tableName],
+      };
+      return item;
+    }
     const item = new vscode.TreeItem(
       `${element.field.fieldName}${element.field.fieldType ? ` (${element.field.fieldType})` : ""}`,
       vscode.TreeItemCollapsibleState.None,
@@ -321,7 +332,10 @@ class SemanticsTreeProvider implements vscode.TreeDataProvider<SemanticsTreeNode
       return catalog.tables.map((table) => ({ kind: "table", table }));
     }
     if (element.kind === "table") {
-      return element.table.fields.map((field) => ({ kind: "field", field }));
+      return [
+        { kind: "tableAction", action: "explore", table: element.table },
+        ...element.table.fields.map((field) => ({ kind: "field", field } as SemanticsTreeNode)),
+      ];
     }
     return [];
   }
@@ -536,6 +550,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   register("valtren.insertSemanticField", async (fieldRef?: unknown) => {
     await browseSemanticFields(context, true, typeof fieldRef === "string" ? fieldRef : undefined);
+  });
+
+  register("valtren.openSemanticTableExplorer", async (tableName?: unknown) => {
+    await openSemanticTableExplorer(context, typeof tableName === "string" ? tableName : undefined);
   });
 
   void refreshStatusBar(context);
@@ -816,6 +834,10 @@ async function browseSemanticTables(
     await insertTextIntoActiveEditor(initialTableName);
     return;
   }
+  if (!insertIntoEditor && initialTableName) {
+    await openSemanticTableExplorer(context, initialTableName);
+    return;
+  }
 
   const selected = await vscode.window.showQuickPick(
     catalog.tables.map((table) => ({
@@ -841,22 +863,7 @@ async function browseSemanticTables(
     await insertTextIntoActiveEditor(selected.table.tableName);
     return;
   }
-
-  const table = selected.table;
-  const lines = [
-    `Table: ${table.tableName}`,
-    table.displayName ? `Label: ${table.displayName}` : undefined,
-    table.description ? `Description: ${table.description}` : undefined,
-    "",
-    "Fields:",
-    ...table.fields
-      .sort((a, b) => a.fieldName.localeCompare(b.fieldName))
-      .map((field) => `- ${field.fieldName}${field.fieldType ? ` (${field.fieldType})` : ""}${field.description ? ` — ${field.description}` : ""}`),
-  ].filter(Boolean);
-
-  outputChannel?.show(true);
-  outputChannel?.appendLine(lines.join("\n"));
-  vscode.window.showInformationMessage(`Opened semantic table ${table.tableName} in Valtren AI output.`);
+  await openSemanticTableExplorer(context, selected.table.tableName);
 }
 
 async function browseSemanticFields(
@@ -1440,6 +1447,48 @@ async function getSemanticCatalog(context: vscode.ExtensionContext): Promise<Sem
   return catalog;
 }
 
+async function openSemanticTableExplorer(
+  context: vscode.ExtensionContext,
+  tableName?: string,
+): Promise<void> {
+  const catalog = await getSemanticCatalog(context);
+  if (!catalog) {
+    return;
+  }
+
+  let table = tableName ? catalog.tables.find((item) => item.tableName === tableName) : undefined;
+  if (!table) {
+    const selected = await vscode.window.showQuickPick(
+      catalog.tables.map((item) => ({
+        label: item.tableName,
+        description: item.displayName || undefined,
+        detail: item.description || undefined,
+        table: item,
+      })),
+      {
+        placeHolder: "Select a semantic table to explore",
+        matchOnDescription: true,
+        matchOnDetail: true,
+      },
+    );
+    table = selected?.table;
+  }
+
+  if (!table) {
+    return;
+  }
+
+  const panel = vscode.window.createWebviewPanel(
+    "valtrenSemanticExplorer",
+    `Semantic Explorer: ${table.tableName}`,
+    vscode.ViewColumn.Beside,
+    {
+      enableFindWidget: true,
+    },
+  );
+  panel.webview.html = renderSemanticTableExplorer(table);
+}
+
 async function validateCurrentExtension(): Promise<ValidationResult | undefined> {
   const rootPath = await resolveExtensionRoot();
   if (!rootPath) {
@@ -1567,13 +1616,25 @@ function createSemanticCompletionProvider(
 
       return catalog.tables
         .filter((table) => !token || table.tableName.startsWith(token))
-        .map((table) => {
+        .flatMap((table) => {
           const item = new vscode.CompletionItem(table.tableName, vscode.CompletionItemKind.Struct);
           item.insertText = table.tableName;
           item.detail = table.displayName || "Semantic table";
           item.documentation = buildSemanticTableMarkdown(table);
           item.sortText = `0-${table.tableName}`;
-          return item;
+
+          const firstField = table.fields[0]?.fieldName || "field_name";
+          const snippetItem = new vscode.CompletionItem(
+            `${table.tableName} field reference`,
+            vscode.CompletionItemKind.Snippet,
+          );
+          snippetItem.insertText = new vscode.SnippetString(`${table.tableName}.\${1:${firstField}}`);
+          snippetItem.detail = `Snippet • ${table.tableName}.field`;
+          snippetItem.documentation = new vscode.MarkdownString(
+            `Insert a semantic field reference for **${table.tableName}**.`,
+          );
+          snippetItem.sortText = `1-${table.tableName}`;
+          return [item, snippetItem];
         });
     },
   };
@@ -1886,6 +1947,104 @@ function buildSemanticFieldMarkdown(field: SemanticField): vscode.MarkdownString
   }
   markdown.isTrusted = false;
   return markdown;
+}
+
+function renderSemanticTableExplorer(table: SemanticTable): string {
+  const fieldRows = table.fields
+    .map(
+      (field) => `
+        <tr>
+          <td><code>${escapeHtml(field.fieldName)}</code></td>
+          <td>${escapeHtml(field.fieldType || "-")}</td>
+          <td>${escapeHtml(field.description || "")}</td>
+        </tr>`,
+    )
+    .join("");
+  const firstField = table.fields[0]?.fieldName || "field_name";
+  const snippets = [
+    table.tableName,
+    `${table.tableName}.${firstField}`,
+    `${table.tableName}.\${field_name}`,
+  ];
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        font-family: var(--vscode-font-family);
+        color: var(--vscode-foreground);
+        background: var(--vscode-editor-background);
+        padding: 20px;
+        line-height: 1.5;
+      }
+      h1, h2 { margin-bottom: 8px; }
+      .muted { color: var(--vscode-descriptionForeground); }
+      .card {
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        text-align: left;
+        padding: 8px;
+        border-bottom: 1px solid var(--vscode-panel-border);
+        vertical-align: top;
+      }
+      code {
+        font-family: var(--vscode-editor-font-family);
+      }
+      pre {
+        background: var(--vscode-textCodeBlock-background);
+        padding: 12px;
+        border-radius: 6px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(table.tableName)}</h1>
+    <div class="muted">${escapeHtml(table.displayName || "")}</div>
+    <p>${escapeHtml(table.description || "No description available for this semantic table yet.")}</p>
+
+    <div class="card">
+      <h2>Quick snippets</h2>
+      <pre><code>${escapeHtml(snippets.join("\n"))}</code></pre>
+    </div>
+
+    <div class="card">
+      <h2>Fields (${table.fields.length})</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${fieldRows || '<tr><td colspan="3">No fields available.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function insertTextIntoActiveEditor(value: string) {
