@@ -4,6 +4,13 @@ All notable changes to `vscode-valtren-extension-tools` will be documented in th
 
 The format is based on Keep a Changelog and this extension follows Semantic Versioning.
 
+## [0.5.0] - 2026-04-03
+
+### Added
+
+- Listing of uploaded org extensions from the connected Valtren organization.
+- Smoke test execution for enabled uploaded extensions directly from VS Code.
+
 ## [0.4.0] - 2026-04-03
 
 ### Added
