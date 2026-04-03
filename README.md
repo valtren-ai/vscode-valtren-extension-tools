@@ -24,6 +24,12 @@ It is designed for teams who want a lightweight editor workflow without duplicat
   - shows the active org, roles, and quick actions
 - `Valtren AI: Disconnect from Organization`
   - clears the saved token and cached semantic metadata
+- `Valtren AI: Validate Current Extension`
+  - detects the extension root, runtime, entry file, and packageability
+- `Valtren AI: Package Current Extension`
+  - creates an org-ready ZIP under `.valtren/dist/` in the current workspace
+- `Valtren AI: Upload Extension ZIP to Valtren`
+  - packages the current workspace and uploads it directly to the connected org
 - `Valtren AI: Browse Semantic Tables`
   - loads live semantic tables from your connected Valtren org
 - `Valtren AI: Browse Semantic Fields`
@@ -74,14 +80,15 @@ This release adds the first real `Valtren Extension Workbench` slice:
 
 - secure org connection
 - status-bar connection summary
+- local extension validation
+- local extension ZIP packaging
+- direct ZIP upload to a connected Valtren org
 - live semantic table browsing
 - live semantic field browsing
 - editor insertion commands
 
 Next steps will add:
 
-- package and validate current extension
-- upload ZIP to a connected org
 - trigger org smoke tests from VS Code
 - browse uploaded extension source
 

@@ -1,5 +1,7 @@
-import * as path from "path";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import * as vscode from "vscode";
+import { zipSync } from "fflate";
 
 type RuntimeTemplate =
   | "node-pack"
@@ -68,6 +70,22 @@ type SemanticCatalog = {
   refreshedAt: string;
 };
 
+type LocalExtensionRuntime = "node" | "python";
+
+type ValidationFinding = {
+  key: string;
+  status: "passed" | "failed" | "warning";
+  detail: string;
+};
+
+type ValidationResult = {
+  rootPath: string;
+  runtime?: LocalExtensionRuntime;
+  entryFile?: string;
+  findings: ValidationFinding[];
+  suggestedName: string;
+};
+
 const secretKeys = {
   apiToken: "valtren.apiToken",
   baseUrl: "valtren.baseUrl",
@@ -118,6 +136,18 @@ export function activate(context: vscode.ExtensionContext) {
 
   register("valtren.refreshSemanticCache", async () => {
     await refreshSemanticCache(context, true);
+  });
+
+  register("valtren.validateCurrentExtension", async () => {
+    await validateCurrentExtensionCommand();
+  });
+
+  register("valtren.packageCurrentExtension", async () => {
+    await packageCurrentExtension();
+  });
+
+  register("valtren.uploadExtensionZip", async () => {
+    await uploadExtensionZip(context);
   });
 
   register("valtren.browseSemanticTables", async () => {
@@ -308,6 +338,9 @@ async function showConnection(context: vscode.ExtensionContext) {
   }
 
   const actions = [
+    "Validate current extension",
+    "Package current extension",
+    "Upload extension ZIP",
     "Browse semantic tables",
     "Browse semantic fields",
     "Refresh semantic cache",
@@ -321,6 +354,18 @@ async function showConnection(context: vscode.ExtensionContext) {
     return;
   }
 
+  if (picked === "Validate current extension") {
+    await validateCurrentExtensionCommand();
+    return;
+  }
+  if (picked === "Package current extension") {
+    await packageCurrentExtension();
+    return;
+  }
+  if (picked === "Upload extension ZIP") {
+    await uploadExtensionZip(context);
+    return;
+  }
   if (picked === "Browse semantic tables") {
     await browseSemanticTables(context, false);
     return;
@@ -464,6 +509,139 @@ async function refreshSemanticCache(context: vscode.ExtensionContext, noisy: boo
   }
 }
 
+async function validateCurrentExtensionCommand() {
+  const validation = await validateCurrentExtension();
+  if (!validation) {
+    return;
+  }
+  renderValidation(validation);
+  const failed = validation.findings.filter((item) => item.status === "failed");
+  if (failed.length) {
+    vscode.window.showWarningMessage(
+      `Validation found ${failed.length} blocking issue${failed.length === 1 ? "" : "s"}. See Valtren AI output for details.`,
+    );
+    return;
+  }
+  vscode.window.showInformationMessage(
+    `Validated ${validation.suggestedName} (${validation.runtime ?? "unknown runtime"}) successfully.`,
+  );
+}
+
+async function packageCurrentExtension() {
+  const validation = await validateCurrentExtension();
+  if (!validation) {
+    return;
+  }
+  const failed = validation.findings.filter((item) => item.status === "failed");
+  renderValidation(validation);
+  if (failed.length) {
+    vscode.window.showWarningMessage(
+      "Cannot package this extension until the validation issues are fixed.",
+    );
+    return;
+  }
+
+  const zipInfo = await createExtensionZip(validation);
+  outputChannel?.show(true);
+  outputChannel?.appendLine(`Packaged extension ZIP: ${zipInfo.outputPath}`);
+  const action = await vscode.window.showInformationMessage(
+    `Packaged ${validation.suggestedName} to ${path.basename(zipInfo.outputPath)}.`,
+    "Reveal in Finder",
+  );
+  if (action === "Reveal in Finder") {
+    await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(zipInfo.outputPath));
+  }
+}
+
+async function uploadExtensionZip(context: vscode.ExtensionContext) {
+  const connection = await getConnection(context);
+  if (!connection) {
+    const action = await vscode.window.showInformationMessage(
+      "Connect to a Valtren organization before uploading an extension.",
+      "Connect now",
+    );
+    if (action === "Connect now") {
+      await connectOrganization(context);
+    }
+    return;
+  }
+
+  const validation = await validateCurrentExtension();
+  if (!validation) {
+    return;
+  }
+  renderValidation(validation);
+  const failed = validation.findings.filter((item) => item.status === "failed");
+  if (failed.length) {
+    vscode.window.showWarningMessage(
+      "Cannot upload this extension until the validation issues are fixed.",
+    );
+    return;
+  }
+
+  const displayName =
+    (await vscode.window.showInputBox({
+      prompt: "Extension display name override (optional)",
+      value: validation.suggestedName,
+      validateInput: (value) =>
+        value.trim() ? undefined : "Please enter a display name or cancel.",
+    })) ?? validation.suggestedName;
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Uploading extension to Valtren AI",
+      cancellable: false,
+    },
+    async () => {
+      const zipInfo = await createExtensionZip(validation);
+      const form = new FormData();
+      form.append(
+        "file",
+        new Blob([zipInfo.buffer], { type: "application/zip" }),
+        path.basename(zipInfo.outputPath),
+      );
+      form.append("name", displayName.trim());
+
+      const response = await fetch(`${connection.baseUrl}/api/admin/org/extensions/upload`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${connection.apiToken}`,
+        },
+        body: form,
+      });
+
+      const rawText = await response.text();
+      const payload = rawText ? parseJsonSafely(rawText) : undefined;
+      if (!response.ok) {
+        const message =
+          (payload && typeof payload === "object" && payload && "error" in payload
+            ? String((payload as { error?: unknown }).error)
+            : undefined) ||
+          response.statusText ||
+          `HTTP ${response.status}`;
+        throw new Error(message);
+      }
+
+      const created =
+        payload && typeof payload === "object" && payload && "created" in payload
+          ? (payload as { created?: Record<string, unknown> }).created
+          : undefined;
+      const packageId = created && typeof created.id === "string" ? created.id : "";
+      const packageStatus = created && typeof created.status === "string" ? created.status : "pending_review";
+
+      outputChannel?.show(true);
+      outputChannel?.appendLine(
+        `Uploaded ${displayName.trim()} to ${connection.orgLabel ?? "Valtren AI"} (${packageId || "no package id returned"}).`,
+      );
+
+      vscode.window.showInformationMessage(
+        `Uploaded ${displayName.trim()} to ${connection.orgLabel ?? "Valtren AI"} with status ${packageStatus}.`,
+      );
+    },
+  );
+}
+
 async function getSemanticCatalog(context: vscode.ExtensionContext): Promise<SemanticCatalog | undefined> {
   let catalog = context.globalState.get<SemanticCatalog>(semanticCatalogStateKey);
   if (!catalog) {
@@ -477,6 +655,186 @@ async function getSemanticCatalog(context: vscode.ExtensionContext): Promise<Sem
   }
 
   return catalog;
+}
+
+async function validateCurrentExtension(): Promise<ValidationResult | undefined> {
+  const rootPath = await resolveExtensionRoot();
+  if (!rootPath) {
+    return undefined;
+  }
+
+  const entryCandidates = [
+    { runtime: "node" as const, file: "index.js" },
+    { runtime: "node" as const, file: "index.mjs" },
+    { runtime: "python" as const, file: "app.py" },
+    { runtime: "python" as const, file: "main.py" },
+  ];
+
+  let runtime: LocalExtensionRuntime | undefined;
+  let entryFile: string | undefined;
+  for (const candidate of entryCandidates) {
+    try {
+      await fs.access(path.join(rootPath, candidate.file));
+      runtime = candidate.runtime;
+      entryFile = candidate.file;
+      break;
+    } catch {
+      // continue
+    }
+  }
+
+  const files = await collectExtensionFiles(rootPath);
+  const findings: ValidationFinding[] = [
+    {
+      key: "extension_root_detected",
+      status: "passed",
+      detail: `Using ${rootPath} as the extension root.`,
+    },
+    {
+      key: "zip_not_empty",
+      status: files.length ? "passed" : "failed",
+      detail: files.length
+        ? `Found ${files.length} file${files.length === 1 ? "" : "s"} to package.`
+        : "No packageable files were found in this workspace.",
+    },
+    {
+      key: "runtime_detected",
+      status: runtime ? "passed" : "failed",
+      detail: runtime
+        ? `Detected ${runtime} runtime from ${entryFile}.`
+        : "Expected one of index.js, index.mjs, app.py, or main.py at the extension root.",
+    },
+    {
+      key: "entry_file_present",
+      status: entryFile ? "passed" : "failed",
+      detail: entryFile ? `Entry file ${entryFile} is present.` : "No supported entry file was found.",
+    },
+    {
+      key: "path_safety",
+      status: "passed",
+      detail: "Package builder will only include safe relative paths and will ignore common local build artifacts.",
+    },
+  ];
+
+  const suggestedName = sanitizeName(path.basename(rootPath) || "valtren-extension");
+  return {
+    rootPath,
+    runtime,
+    entryFile,
+    findings,
+    suggestedName,
+  };
+}
+
+function renderValidation(validation: ValidationResult) {
+  const lines = [
+    "Valtren extension validation",
+    `Root: ${validation.rootPath}`,
+    `Suggested name: ${validation.suggestedName}`,
+    validation.runtime ? `Runtime: ${validation.runtime}` : "Runtime: not detected",
+    validation.entryFile ? `Entry: ${validation.entryFile}` : "Entry: missing",
+    "",
+    "Findings:",
+    ...validation.findings.map(
+      (item) => `- [${item.status.toUpperCase()}] ${item.key}: ${item.detail}`,
+    ),
+    "",
+  ];
+  outputChannel?.show(true);
+  outputChannel?.appendLine(lines.join("\n"));
+}
+
+async function resolveExtensionRoot(): Promise<string | undefined> {
+  if (vscode.workspace.workspaceFolders?.length) {
+    if (vscode.workspace.workspaceFolders.length === 1) {
+      return vscode.workspace.workspaceFolders[0].uri.fsPath;
+    }
+
+    const selected = await vscode.window.showQuickPick(
+      vscode.workspace.workspaceFolders.map((folder) => ({
+        label: folder.name,
+        description: folder.uri.fsPath,
+        folder,
+      })),
+      { placeHolder: "Select the workspace folder to treat as the extension root" },
+    );
+    return selected?.folder.uri.fsPath;
+  }
+
+  const selected = await vscode.window.showOpenDialog({
+    canSelectFiles: false,
+    canSelectFolders: true,
+    canSelectMany: false,
+    openLabel: "Select extension root",
+  });
+  return selected?.[0]?.fsPath;
+}
+
+async function collectExtensionFiles(rootPath: string): Promise<string[]> {
+  const results: string[] = [];
+
+  async function walk(currentPath: string) {
+    const entries = await fs.readdir(currentPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const absolutePath = path.join(currentPath, entry.name);
+      const relativePath = path.relative(rootPath, absolutePath).replace(/\\/g, "/");
+      if (shouldIgnorePath(relativePath, entry.name, entry.isDirectory())) {
+        continue;
+      }
+      if (entry.isDirectory()) {
+        await walk(absolutePath);
+      } else if (entry.isFile()) {
+        results.push(relativePath);
+      }
+    }
+  }
+
+  await walk(rootPath);
+  return results.sort((a, b) => a.localeCompare(b));
+}
+
+function shouldIgnorePath(relativePath: string, name: string, isDirectory: boolean): boolean {
+  const normalized = String(relativePath || "").replace(/\\/g, "/");
+  const topLevel = normalized.split("/")[0] || name;
+  const ignoredNames = new Set([
+    ".git",
+    "node_modules",
+    "dist",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".DS_Store",
+    ".valtren",
+  ]);
+  if (ignoredNames.has(name) || ignoredNames.has(topLevel)) {
+    return true;
+  }
+  if (!isDirectory && (normalized.endsWith(".vsix") || normalized.endsWith(".zip"))) {
+    return true;
+  }
+  return false;
+}
+
+async function createExtensionZip(validation: ValidationResult): Promise<{
+  outputPath: string;
+  buffer: Buffer;
+}> {
+  const files = await collectExtensionFiles(validation.rootPath);
+  const archiveEntries: Record<string, Uint8Array> = {};
+  for (const relativePath of files) {
+    const absolutePath = path.join(validation.rootPath, relativePath);
+    const fileBuffer = await fs.readFile(absolutePath);
+    archiveEntries[relativePath] = new Uint8Array(fileBuffer);
+  }
+
+  const buffer = Buffer.from(zipSync(archiveEntries, { level: 6 }));
+  const outputDir = path.join(validation.rootPath, ".valtren", "dist");
+  await fs.mkdir(outputDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const outputPath = path.join(outputDir, `${validation.suggestedName}-${timestamp}.zip`);
+  await fs.writeFile(outputPath, buffer);
+  return { outputPath, buffer };
 }
 
 function buildSemanticCatalog(overview: SemanticOverviewResponse): SemanticCatalog {
@@ -673,6 +1031,15 @@ function normalizeBaseUrl(value: string): string {
   }
   const url = new URL(trimmed);
   return url.origin.replace(/\/$/, "");
+}
+
+function sanitizeName(value: string): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "valtren-extension";
 }
 
 function shellEscape(value: string): string {
